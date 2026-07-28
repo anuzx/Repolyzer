@@ -1,18 +1,19 @@
 {
-  "name": "backend",
+  "name": "@repo/queue",
   "module": "index.ts",
   "type": "module",
   "private": true,
+  "exports": {
+    ".": "./index.ts"
+  },
   "devDependencies": {
-    "@types/bun": "latest",
-    "@types/express": "^5.0.6"
+    "@types/bun": "latest"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
-    "@repo/common": "*",
-    "express": "^5.2.1",
-    "simple-git": "^3.36.0"
+    "bullmq": "^5.81.2",
+    "redis": "^6.1.0"
   }
 }

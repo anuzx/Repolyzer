@@ -11,3 +11,209 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+enum RepoStatus {
+  QUEUED
+  CLONING
+  PARSING
+  CHUNKING
+  EMBEDDING
+  COMPLETED
+  FAILED
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+}
+
+enum ArtifactType {
+  ARCHITECTURE
+  DOCUMENTATION
+  README
+  API_DOCS
+  FOLDER_GUIDE
+  NOTEBOOK
+  CODE_REVIEW
+}
+
+model Repository {
+  id              String     @id @default(cuid())
+
+  githubUrl       String
+  cloneUrl        String
+
+  owner           String
+  name            String
+
+  description     String?
+  defaultBranch   String?
+  latestCommitSha String?
+
+  language        String?
+
+  stars           Int        @default(0)
+  forks           Int        @default(0)
+
+  status          RepoStatus @default(QUEUED)
+  indexedAt       DateTime?
+
+  files           File[]
+  jobs            Job[]
+  chats           Chat[]
+  issues          Issue[]
+  artifacts       AiArtifact[]
+
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@unique([owner, name])
+}
+
+model Job {
+  id            String    @id @default(cuid())
+
+  repositoryId  String
+  repository    Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  status        JobStatus @default(PENDING)
+
+  startedAt     DateTime?
+  completedAt   DateTime?
+
+  error         String?
+
+  createdAt     DateTime @default(now())
+
+  @@index([repositoryId])
+}
+
+model File {
+  id            String @id @default(cuid())
+
+  repositoryId  String
+  repository    Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  path          String
+  extension     String?
+  language      String?
+
+  size          Int
+  hash          String
+
+  summary       String?
+
+  chunks        Chunk[]
+  issues        Issue[]
+
+  createdAt     DateTime @default(now())
+
+  @@index([repositoryId])
+}
+
+model Chunk {
+  id            String @id @default(cuid())
+
+  repositoryId  String
+
+  fileId        String
+  file          File @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  chunkIndex    Int
+
+  content       String
+
+  tokenCount    Int?
+
+  /// Chroma document ID
+  vectorId      String
+
+  createdAt     DateTime @default(now())
+
+  @@index([repositoryId])
+  @@index([fileId])
+}
+
+model Issue {
+  id             String @id @default(cuid())
+
+  repositoryId   String
+  repository     Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  fileId         String?
+  file           File? @relation(fields: [fileId], references: [id], onDelete: SetNull)
+
+  severity       Severity
+
+  title          String
+
+  description    String
+
+  recommendation String
+
+  resolved       Boolean @default(false)
+
+  createdAt      DateTime @default(now())
+
+  @@index([repositoryId])
+}
+
+model Chat {
+  id            String @id @default(cuid())
+
+  repositoryId  String
+  repository    Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  title         String?
+
+  messages      Message[]
+
+  createdAt     DateTime @default(now())
+
+  @@index([repositoryId])
+}
+
+model Message {
+  id          String @id @default(cuid())
+
+  chatId      String
+  chat        Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  role        MessageRole
+
+  content     String
+
+  createdAt   DateTime @default(now())
+
+  @@index([chatId])
+}
+
+model AiArtifact {
+  id            String @id @default(cuid())
+
+  repositoryId  String
+  repository    Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+
+  type          ArtifactType
+
+  content       String
+
+  createdAt     DateTime @default(now())
+
+  @@index([repositoryId])
+  @@index([type])
+}

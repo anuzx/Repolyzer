@@ -1,18 +1,16 @@
 {
-  "name": "backend",
+  "name": "worker",
   "module": "index.ts",
   "type": "module",
   "private": true,
   "devDependencies": {
-    "@types/bun": "latest",
-    "@types/express": "^5.0.6"
+    "@types/bun": "latest"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
-    "@repo/common": "*",
-    "express": "^5.2.1",
-    "simple-git": "^3.36.0"
+    "bullmq": "^5.81.2",
+    "@repo/queue": "*"
   }
 }

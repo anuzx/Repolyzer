@@ -15,14 +15,24 @@ interface Repo {
   createdAt: string;
 }
 
-const STATUS_BADGE: Record<string, string> = {
-  QUEUED: "bg-gray-700",
-  CLONING: "bg-gray-600",
-  PARSING: "bg-gray-600",
-  CHUNKING: "bg-gray-600",
-  EMBEDDING: "bg-gray-600",
-  COMPLETED: "bg-gray-500",
-  FAILED: "bg-black border border-gray-600",
+const STATUS_LABEL: Record<string, string> = {
+  QUEUED: "Queued",
+  CLONING: "Cloning",
+  PARSING: "Parsing",
+  CHUNKING: "Chunking",
+  EMBEDDING: "Embedding",
+  COMPLETED: "Ready",
+  FAILED: "Failed",
+};
+
+const STATUS_DOT: Record<string, string> = {
+  QUEUED: "bg-neutral-600",
+  CLONING: "bg-neutral-400 animate-pulse",
+  PARSING: "bg-neutral-400 animate-pulse",
+  CHUNKING: "bg-neutral-400 animate-pulse",
+  EMBEDDING: "bg-neutral-400 animate-pulse",
+  COMPLETED: "bg-white",
+  FAILED: "bg-neutral-700",
 };
 
 export default function Home() {
@@ -71,79 +81,126 @@ export default function Home() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-12">
-      <header className="mb-10">
-        <h1 className="text-3xl font-bold text-white tracking-tight">
-          Repolyzer
-        </h1>
-        <p className="text-gray-400 mt-1">
-          Paste a GitHub repo URL to analyze its architecture
-        </p>
-      </header>
+    <div className="min-h-screen bg-black relative">
+      {/* blueprint dot-grid backdrop */}
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.15]"
+        style={{
+          backgroundImage:
+            "radial-gradient(circle, #ffffff 1px, transparent 1px)",
+          backgroundSize: "28px 28px",
+          maskImage:
+            "radial-gradient(ellipse 60% 40% at 50% 0%, black 0%, transparent 70%)",
+          WebkitMaskImage:
+            "radial-gradient(ellipse 60% 40% at 50% 0%, black 0%, transparent 70%)",
+        }}
+      />
 
-      <form onSubmit={handleSubmit} className="flex gap-3 mb-8">
-        <input
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder="https://github.com/owner/repo"
-          className="flex-1 px-4 py-2.5 rounded-lg bg-gray-800 border border-gray-700 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-transparent"
-        />
-        <button
-          type="submit"
-          disabled={submitting || !url.trim()}
-          className="px-6 py-2.5 rounded-lg bg-white text-black font-medium hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          {submitting ? "..." : "Analyze"}
-        </button>
-      </form>
+      <div className="relative max-w-2xl mx-auto px-6 py-20">
+        <header className="mb-14">
+          <p
+            className="text-[11px] tracking-[0.25em] text-neutral-500 uppercase mb-3"
+            style={{ fontFamily: "var(--font-mono)" }}
+          >
+            GitHub architecture, mapped
+          </p>
+          <h1
+            className="text-5xl text-white tracking-tight"
+            style={{ fontFamily: "var(--font-display)", fontWeight: 500 }}
+          >
+            Repolyzer
+          </h1>
+          <p className="text-neutral-500 mt-3 text-[15px] leading-relaxed max-w-md">
+            Paste a repository URL. Get its system architecture, file
+            dependencies, and class diagrams back.
+          </p>
+        </header>
 
-      {error && (
-        <div className="mb-6 p-3 rounded-lg bg-gray-900 border border-gray-700 text-gray-400 text-sm">
-          {error}
-        </div>
-      )}
+        <form onSubmit={handleSubmit} className="flex gap-2.5 mb-3">
+          <input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://github.com/owner/repo"
+            className="flex-1 px-4 py-3 rounded-md bg-neutral-950 border border-neutral-800 text-white placeholder-neutral-600 focus:outline-none focus:ring-1 focus:ring-white focus:border-white transition-colors text-sm"
+            style={{ fontFamily: "var(--font-mono)" }}
+          />
+          <button
+            type="submit"
+            disabled={submitting || !url.trim()}
+            className="px-6 py-3 rounded-md bg-white text-black text-sm font-medium hover:bg-neutral-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0"
+          >
+            {submitting ? "Analyzing…" : "Analyze"}
+          </button>
+        </form>
 
-      <section>
-        <h2 className="text-lg font-semibold text-white mb-4">
-          Repositories
-        </h2>
-        {repos.length === 0 ? (
-          <p className="text-gray-600 text-sm">No repos analyzed yet</p>
-        ) : (
-          <div className="space-y-2">
-            {repos.map((r) => (
-              <Link
-                key={r.id}
-                href={`/repo/${r.id}`}
-                className="block p-4 rounded-lg bg-gray-900 border border-gray-800 hover:border-gray-700 transition-colors"
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <span className="text-white font-medium">
-                      {r.owner}/{r.name}
-                    </span>
-                    {r.description && (
-                      <p className="text-gray-500 text-sm mt-0.5 line-clamp-1">
-                        {r.description}
-                      </p>
-                    )}
-                  </div>
-                  <span
-                    className={`shrink-0 ml-4 px-2.5 py-0.5 rounded-full text-xs font-medium text-white ${STATUS_BADGE[r.status] || "bg-gray-600"}`}
-                  >
-                    {r.status}
-                  </span>
-                </div>
-                <div className="flex gap-4 mt-2 text-xs text-gray-600">
-                  {r.language && <span>{r.language}</span>}
-                  <span>{r.stars} stars</span>
-                  <span>{r.forks} forks</span>
-                </div>
-              </Link>
-            ))}
+        {error && (
+          <div
+            className="mb-8 px-4 py-3 rounded-md bg-neutral-950 border border-neutral-800 text-neutral-400 text-sm"
+            style={{ fontFamily: "var(--font-mono)" }}
+          >
+            {error}
           </div>
         )}
-      </section>
+
+        <section className={error ? "" : "mt-10"}>
+          <h2
+            className="text-xs tracking-[0.2em] uppercase text-neutral-600 mb-4"
+            style={{ fontFamily: "var(--font-mono)" }}
+          >
+            Repositories
+          </h2>
+
+          {repos.length === 0 ? (
+            <p className="text-neutral-700 text-sm">
+              Nothing analyzed yet — paste a URL above to get started.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {repos.map((r) => (
+                <Link
+                  key={r.id}
+                  href={`/repo/${r.id}`}
+                  className="group block p-4 rounded-lg bg-neutral-950/60 border border-neutral-800/80 hover:border-white/40 hover:bg-neutral-950 transition-colors"
+                >
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <span className="text-white font-medium truncate block">
+                        {r.owner}
+                        <span className="text-neutral-600">/</span>
+                        {r.name}
+                      </span>
+                      {r.description && (
+                        <p className="text-neutral-500 text-sm mt-0.5 line-clamp-1">
+                          {r.description}
+                        </p>
+                      )}
+                    </div>
+                    <span
+                      className="shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-neutral-800 text-[11px] tracking-wide uppercase text-neutral-400 group-hover:border-neutral-600 transition-colors"
+                      style={{ fontFamily: "var(--font-mono)" }}
+                    >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          STATUS_DOT[r.status] || "bg-neutral-600"
+                        }`}
+                      />
+                      {STATUS_LABEL[r.status] || r.status}
+                    </span>
+                  </div>
+                  <div
+                    className="flex gap-4 mt-2.5 text-xs text-neutral-600"
+                    style={{ fontFamily: "var(--font-mono)" }}
+                  >
+                    {r.language && <span>{r.language}</span>}
+                    <span>★ {r.stars}</span>
+                    <span>⑂ {r.forks}</span>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
     </div>
   );
 }

@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { ZoomContainer } from "./zoom-container";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { ZoomContainer, type ZoomContainerHandle } from "./zoom-container";
 
 export function MermaidView({ chart, id }: { chart: string; id: string }) {
   const [svg, setSvg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const zoomApiRef = useRef<ZoomContainerHandle | null>(null);
 
   useEffect(() => {
     if (!chart) return;
@@ -20,14 +21,39 @@ export function MermaidView({ chart, id }: { chart: string; id: string }) {
 
       mermaid.initialize({
         startOnLoad: false,
-        theme: "dark",
+        theme: "base",
         themeVariables: {
-          primaryColor: "#1e293b",
-          primaryTextColor: "#e2e8f0",
-          primaryBorderColor: "#475569",
-          lineColor: "#64748b",
-          secondaryColor: "#0f172a",
-          tertiaryColor: "#1e293b",
+          // Clean, max-contrast blueprint look: white node fills with black
+          // text, on a solid black canvas — this reads correctly regardless
+          // of which mermaid diagram type is drawn.
+          background: "transparent",
+          primaryColor: "#f2f2ef",
+          primaryTextColor: "#0a0a0a",
+          primaryBorderColor: "#0a0a0a",
+          secondaryColor: "#f2f2ef",
+          secondaryTextColor: "#0a0a0a",
+          secondaryBorderColor: "#0a0a0a",
+          tertiaryColor: "#f2f2ef",
+          tertiaryTextColor: "#0a0a0a",
+          tertiaryBorderColor: "#0a0a0a",
+          lineColor: "#d4d4d0",
+          textColor: "#f2f2ef",
+          nodeTextColor: "#0a0a0a",
+          mainBkg: "#f2f2ef",
+          edgeLabelBackground: "#000000",
+          clusterBkg: "#141414",
+          clusterBorder: "#f2f2ef",
+          titleColor: "#f2f2ef",
+          actorBkg: "#f2f2ef",
+          actorTextColor: "#0a0a0a",
+          actorBorder: "#0a0a0a",
+          signalColor: "#d4d4d0",
+          signalTextColor: "#f2f2ef",
+          labelBoxBkgColor: "#f2f2ef",
+          labelTextColor: "#0a0a0a",
+          classText: "#0a0a0a",
+          fontFamily: "JetBrains Mono, ui-monospace, monospace",
+          fontSize: "14px",
         },
       });
 
@@ -52,6 +78,24 @@ export function MermaidView({ chart, id }: { chart: string; id: string }) {
     };
   }, [chart, id]);
 
+  // Auto-fit once the diagram is actually laid out. fit() returns false if
+  // the content isn't measurable yet (e.g. the first paint frame), so we
+  // retry on the next frame instead of computing a bogus zoom level.
+  useEffect(() => {
+    if (!svg) return;
+    let raf = 0;
+    let attempts = 0;
+    const tryFit = () => {
+      const ok = zoomApiRef.current?.fit();
+      if (!ok && attempts < 20) {
+        attempts += 1;
+        raf = requestAnimationFrame(tryFit);
+      }
+    };
+    raf = requestAnimationFrame(tryFit);
+    return () => cancelAnimationFrame(raf);
+  }, [svg]);
+
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(chart).then(() => {
       setCopied(true);
@@ -61,41 +105,52 @@ export function MermaidView({ chart, id }: { chart: string; id: string }) {
 
   if (!chart) {
     return (
-      <div className="flex items-center justify-center h-64 text-gray-500">
+      <div className="flex items-center justify-center h-64 text-neutral-600 text-sm">
         No diagram data
       </div>
     );
   }
 
   return (
-    <ZoomContainer>
+    <ZoomContainer apiRef={zoomApiRef}>
       {error ? (
-        <div className="p-6">
-          <div className="flex items-center gap-2 mb-3 text-gray-400">
-            <span className="font-medium">Failed to render diagram</span>
-            <span className="text-xs text-gray-500">({error})</span>
+        <div className="p-6 max-w-2xl">
+          <div className="flex items-center gap-2 mb-3 text-neutral-400">
+            <span className="w-1.5 h-1.5 rounded-full bg-neutral-600 shrink-0" />
+            <span className="font-medium text-sm">
+              Failed to render diagram
+            </span>
           </div>
+          <p
+            className="text-xs text-neutral-600 mb-4"
+            style={{ fontFamily: "var(--font-mono)" }}
+          >
+            {error}
+          </p>
 
           <div className="flex gap-2 mb-3">
             <button
               onClick={handleCopy}
-              className="px-3 py-1.5 text-xs bg-gray-800 rounded hover:bg-gray-700 text-gray-300 transition-colors"
+              className="px-3 py-1.5 text-xs bg-white text-black rounded hover:bg-neutral-200 transition-colors font-medium"
             >
-              {copied ? "Copied!" : "Copy raw source"}
+              {copied ? "Copied" : "Copy raw source"}
             </button>
           </div>
 
-          <pre className="text-xs text-gray-400 bg-gray-950 rounded-lg p-4 overflow-auto max-h-96 whitespace-pre-wrap border border-gray-800">
+          <pre
+            className="text-xs text-neutral-400 bg-neutral-950 rounded-lg p-4 overflow-auto max-h-96 whitespace-pre-wrap border border-neutral-800"
+            style={{ fontFamily: "var(--font-mono)" }}
+          >
             {chart}
           </pre>
 
-          <p className="mt-3 text-xs text-gray-600">
+          <p className="mt-3 text-xs text-neutral-600">
             Paste the source into{" "}
             <a
               href="https://mermaid.live"
               target="_blank"
               rel="noopener noreferrer"
-              className="text-gray-400 hover:underline"
+              className="text-neutral-300 hover:text-white underline underline-offset-2"
             >
               mermaid.live
             </a>{" "}
@@ -104,13 +159,14 @@ export function MermaidView({ chart, id }: { chart: string; id: string }) {
         </div>
       ) : svg ? (
         <div
-          className="flex justify-center p-4"
-          style={{ minHeight: 300 }}
+          className="p-10"
+          style={{ minHeight: 300, minWidth: 300 }}
           dangerouslySetInnerHTML={{ __html: svg }}
         />
       ) : (
-        <div className="flex items-center justify-center h-64 text-gray-500">
-          Rendering diagram...
+        <div className="flex items-center justify-center h-64 gap-2 text-neutral-600 text-sm">
+          <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+          Rendering diagram…
         </div>
       )}
     </ZoomContainer>

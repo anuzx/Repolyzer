@@ -1,8 +1,11 @@
 {
-  "name": "worker",
+  "name": "@repo/github",
   "module": "index.ts",
   "type": "module",
   "private": true,
+  "exports": {
+    ".": "./index.ts"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   },
@@ -10,11 +13,6 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@repo/db": "*",
-    "@repo/github": "*",
-    "@repo/queue": "*",
-    "bullmq": "^5.81.2",
-    "fast-glob": "^3.3.3",
-    "ts-morph": "^28.0.0"
+    "simple-git": "^3.36.0"
   }
 }

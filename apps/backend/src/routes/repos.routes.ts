@@ -5,7 +5,6 @@ const router = Router();
 
 router.post("/", addRepo);
 router.get("/", getAllRepos)
-router.get("/:repoId" , getRepoById)
-router.delete("/:repoId", deleteRepo)
+router.route("/:repoId").get(getRepoById).delete(deleteRepo)
 
 export default router;

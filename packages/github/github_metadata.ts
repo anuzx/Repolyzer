@@ -1,4 +1,3 @@
-import { ApiError } from "../../utils/ApiError";
 import { getRepository } from "./api";
 import { parseGithubUrl } from "./parser";
 
@@ -13,7 +12,7 @@ export async function getRepositoryMetadata(url: string) {
 
   return {
     owner,
-    repo,
+    name: repo,
 
     githubUrl: url,
 

@@ -187,7 +187,7 @@ export function ZoomContainer({
       <div
         ref={containerRef}
         className={`relative overflow-hidden flex-1 min-h-0 ${
-          dragging.current ? "cursor-grabbing" : "cursor-grab"
+          interacting ? "cursor-grabbing" : "cursor-grab"
         }`}
         style={{
           backgroundImage:

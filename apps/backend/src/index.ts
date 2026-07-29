@@ -7,20 +7,26 @@ const app = express();
 app.use(express.json());
 
 import repoRouter from "./routes/repos.routes";
+import chatRouter from "./routes/chat.routes";
 
 app.use("/api/repo", repoRouter);
+app.use("/api/chats", chatRouter);
 
 app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
   if (err instanceof ApiError) {
-    return res
-      .status(err.statusCode)
-      .json({ success: false, message: err.message, statusCode: err.statusCode });
+    return res.status(err.statusCode).json({
+      success: false,
+      message: err.message,
+      statusCode: err.statusCode,
+    });
   }
 
   console.error(err);
-  return res
-    .status(500)
-    .json({ success: false, message: "Internal server error", statusCode: 500 });
+  return res.status(500).json({
+    success: false,
+    message: "Internal server error",
+    statusCode: 500,
+  });
 });
 
 app.listen(3000, () => console.log("server running at port 3000"));

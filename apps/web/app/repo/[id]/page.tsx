@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { useEffect, useState, useCallback } from "react";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { MermaidView } from "../../components/mermaid-view";
+import { SummaryView } from "../../components/summary-view";
 
 interface RepoDetail {
   id: string;
@@ -20,7 +21,13 @@ interface RepoDetail {
   artifacts: { type: string; content: string }[];
 }
 
-type TabId = "system-architecture" | "file-dependencies" | "class-diagram";
+type TabId =
+  | "system-architecture"
+  | "file-dependencies"
+  | "class-diagram"
+  | "summary"
+  | "chat"
+  | "issues";
 
 interface NavFolder {
   label: string;
@@ -38,6 +45,7 @@ const STATUS_LABEL: Record<string, string> = {
   QUEUED: "Queued",
   CLONING: "Cloning",
   PARSING: "Parsing",
+  SUMMARY: "Generating Summary",
   CHUNKING: "Chunking",
   EMBEDDING: "Embedding",
   COMPLETED: "Ready",
@@ -48,6 +56,7 @@ const STATUS_DOT: Record<string, string> = {
   QUEUED: "bg-neutral-600",
   CLONING: "bg-neutral-400 animate-pulse",
   PARSING: "bg-neutral-400 animate-pulse",
+  SUMMARY: "bg-neutral-400 animate-pulse",
   CHUNKING: "bg-neutral-400 animate-pulse",
   EMBEDDING: "bg-neutral-400 animate-pulse",
   COMPLETED: "bg-white",
@@ -58,9 +67,12 @@ const TAB_LABEL: Record<TabId, string> = {
   "system-architecture": "System Architecture",
   "file-dependencies": "File Dependencies",
   "class-diagram": "Class Diagram",
+  summary: "Summary",
+  chat: "Chat",
+  issues: "Issues",
 };
 
-const TAB_DATA_KEY: Record<TabId, string> = {
+const TAB_DATA_KEY: Record<string, string> = {
   "system-architecture": "architecture",
   "file-dependencies": "flowchart",
   "class-diagram": "classDiagram",
@@ -72,6 +84,7 @@ function isFolder(item: NavItem): item is NavFolder {
 
 export default function RepoPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const [repo, setRepo] = useState<RepoDetail | null>(null);
   const [tab, setTab] = useState<TabId>("system-architecture");
   const [archOpen, setArchOpen] = useState(true);
@@ -81,23 +94,39 @@ export default function RepoPage() {
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
+    let interval: ReturnType<typeof setInterval> | undefined;
 
     async function poll() {
       try {
         const res = await fetch(`/api/repo/${id}`);
         if (!res.ok) return;
         const body = await res.json();
-        if (!cancelled) setRepo(body.data);
+        if (cancelled) return;
+        setRepo(body.data);
+        // Stop polling once this repo has reached a terminal status — no
+        // point hitting the API every 3s when nothing is still processing.
+        const status = body.data?.status;
+        if ((status === "COMPLETED" || status === "FAILED") && interval) {
+          clearInterval(interval);
+        }
       } catch {}
     }
 
     poll();
-    const interval = setInterval(poll, 3000);
+    interval = setInterval(poll, 3000);
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      if (interval) clearInterval(interval);
     };
   }, [id]);
+
+  const handleDelete = useCallback(async () => {
+    if (!confirm("Delete this repository and all its data?")) return;
+    try {
+      const res = await fetch(`/api/repo/${id}`, { method: "DELETE" });
+      if (res.ok) router.push("/");
+    } catch {}
+  }, [id, router]);
 
   if (!repo) {
     return (
@@ -111,7 +140,12 @@ export default function RepoPage() {
   }
 
   const completed = repo.status === "COMPLETED";
+  const processing = !completed && repo.status !== "FAILED";
+
   const archArtifact = repo.artifacts.find((a) => a.type === "ARCHITECTURE");
+  const summaryArtifact = repo.artifacts.find(
+    (a) => a.type === "DOCUMENTATION",
+  );
   let mermaidData: Record<string, string> | null = null;
   if (archArtifact) {
     try {
@@ -128,6 +162,7 @@ export default function RepoPage() {
         { id: "class-diagram", label: "Class Diagram" },
       ],
     },
+    { id: "summary", label: "Summary" },
     { id: "chat", label: "Chat" },
     { id: "issues", label: "Issues" },
     { id: "files", label: "Files" },
@@ -138,7 +173,6 @@ export default function RepoPage() {
       setArchOpen(!archOpen);
     } else if (item.id === "files") {
       setFilesOpen(!filesOpen);
-    } else if (item.id === "chat" || item.id === "issues") {
     } else {
       setTab(item.id as TabId);
     }
@@ -189,13 +223,32 @@ export default function RepoPage() {
           </span>
         </div>
         <div
-          className="ml-auto flex gap-4 text-xs text-neutral-500 shrink-0"
+          className="ml-auto flex items-center gap-4 text-xs text-neutral-500 shrink-0"
           style={{ fontFamily: "var(--font-mono)" }}
         >
           {repo.language && <span>{repo.language}</span>}
           <span>★ {repo.stars}</span>
           <span>⑂ {repo.forks}</span>
           {repo.defaultBranch && <span>{repo.defaultBranch}</span>}
+          <button
+            onClick={handleDelete}
+            disabled={processing}
+            className="ml-2 w-6 h-6 flex items-center justify-center text-neutral-600 hover:text-red-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors border border-neutral-800 rounded"
+            title="Delete repository"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 20 20"
+              fill="currentColor"
+              className="w-3.5 h-3.5"
+            >
+              <path
+                fillRule="evenodd"
+                d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </button>
         </div>
       </header>
 
@@ -288,6 +341,23 @@ export default function RepoPage() {
 
           {completed &&
             (() => {
+              if (tab === "summary") {
+                return <SummaryView content={summaryArtifact?.content ?? ""} />;
+              }
+              if (tab === "chat") {
+                return (
+                  <div className="flex-1 flex items-center justify-center text-neutral-600 text-sm">
+                    Chat coming soon
+                  </div>
+                );
+              }
+              if (tab === "issues") {
+                return (
+                  <div className="flex-1 flex items-center justify-center text-neutral-600 text-sm">
+                    Issues coming soon
+                  </div>
+                );
+              }
               if (!mermaidData) {
                 return (
                   <div className="flex-1 flex items-center justify-center text-neutral-600 text-sm">
@@ -295,11 +365,19 @@ export default function RepoPage() {
                   </div>
                 );
               }
-              const chart = mermaidData[TAB_DATA_KEY[tab]];
+              const key = TAB_DATA_KEY[tab];
+              if (!key) {
+                return (
+                  <div className="flex-1 flex items-center justify-center text-neutral-600 text-sm">
+                    Diagram not available
+                  </div>
+                );
+              }
+              const chart = mermaidData[key];
               if (!chart) {
                 return (
                   <div className="flex-1 flex items-center justify-center text-neutral-600 text-sm">
-                    No {TAB_LABEL[tab].toLowerCase()} diagram available
+                    No {TAB_LABEL[tab]?.toLowerCase()} diagram available
                   </div>
                 );
               }

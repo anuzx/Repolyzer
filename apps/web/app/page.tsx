@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 
 interface Repo {
@@ -19,6 +19,7 @@ const STATUS_LABEL: Record<string, string> = {
   QUEUED: "Queued",
   CLONING: "Cloning",
   PARSING: "Parsing",
+  SUMMARY: "Generating Summary",
   CHUNKING: "Chunking",
   EMBEDDING: "Embedding",
   COMPLETED: "Ready",
@@ -29,6 +30,7 @@ const STATUS_DOT: Record<string, string> = {
   QUEUED: "bg-neutral-600",
   CLONING: "bg-neutral-400 animate-pulse",
   PARSING: "bg-neutral-400 animate-pulse",
+  SUMMARY: "bg-neutral-400 animate-pulse",
   CHUNKING: "bg-neutral-400 animate-pulse",
   EMBEDDING: "bg-neutral-400 animate-pulse",
   COMPLETED: "bg-white",
@@ -40,22 +42,47 @@ export default function Home() {
   const [submitting, setSubmitting] = useState(false);
   const [repos, setRepos] = useState<Repo[]>([]);
   const [error, setError] = useState("");
+  // Bumped whenever a repo is submitted, to restart polling if it had
+  // stopped after everything previously reached a terminal status.
+  const [pollGeneration, setPollGeneration] = useState(0);
 
-  async function fetchRepos() {
+  const fetchRepos = useCallback(async (): Promise<Repo[]> => {
     try {
       const res = await fetch("/api/repo");
       if (res.ok) {
         const body = await res.json();
-        setRepos(body.data || []);
+        const data: Repo[] = body.data || [];
+        setRepos(data);
+        return data;
       }
     } catch {}
-  }
+    return [];
+  }, []);
 
   useEffect(() => {
-    fetchRepos();
-    const id = setInterval(fetchRepos, 3000);
-    return () => clearInterval(id);
-  }, []);
+    let cancelled = false;
+    let intervalId: ReturnType<typeof setInterval> | undefined;
+
+    const poll = async () => {
+      const data = await fetchRepos();
+      if (cancelled) return;
+      // Stop polling once every repo has reached a terminal status — no
+      // point hitting the API every 3s when nothing is still processing.
+      const stillProcessing = data.some(
+        (r) => r.status !== "COMPLETED" && r.status !== "FAILED",
+      );
+      if (data.length > 0 && !stillProcessing && intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+
+    poll();
+    intervalId = setInterval(poll, 3000);
+    return () => {
+      cancelled = true;
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [fetchRepos, pollGeneration]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -73,6 +100,7 @@ export default function Home() {
       }
       setUrl("");
       await fetchRepos();
+      setPollGeneration((n) => n + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {

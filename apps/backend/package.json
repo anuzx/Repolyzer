@@ -11,6 +11,7 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@repo/ai": "*",
     "@repo/common": "*",
     "@repo/db": "*",
     "@repo/queue": "*",

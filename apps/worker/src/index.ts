@@ -4,16 +4,19 @@ import { repositoryProcessor } from "./processors/repository.processor";
 
 const worker = new Worker(
   "repository-processing",
-
   async (job) => {
-    try {
-      await repositoryProcessor(job);
-    } catch (error) {
-      console.log(error);
-    }
+    await repositoryProcessor(job);
   },
-
   {
     connection: redisConnection,
+    concurrency: 2,
   },
 );
+
+worker.on("failed", (job, err) => {
+  console.error(`Job ${job?.id} failed:`, err);
+});
+
+worker.on("error", (err) => {
+  console.error("Worker error:", err);
+});

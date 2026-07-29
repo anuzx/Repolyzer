@@ -3,15 +3,21 @@ import { deleteTempDirectory } from "../utils/cleanup";
 import { createTempDirectory } from "../utils/temp";
 import { prisma } from "@repo/db";
 import type { Job } from "bullmq";
+import pLimit from "p-limit";
 import { scanRepository } from "../services/scan.service";
 import { buildKnowledgeGraph } from "../services/ast.service";
 import { generateMermaid } from "../services/graph.service";
+import { generateSummary } from "../services/summary.service";
+import { chunkRepository } from "../services/chunk.service";
+import { embedRepositoryChunks } from "../services/embedding.service";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
 
 export interface RepositoryJob {
   repositoryId: string;
 }
+
+const READ_CONCURRENCY = 15;
 
 export async function repositoryProcessor(job: Job<RepositoryJob>) {
   const repo = await prisma.repository.findUnique({
@@ -49,28 +55,49 @@ export async function repositoryProcessor(job: Job<RepositoryJob>) {
     const graph = await buildKnowledgeGraph(files);
     const mermaid = await generateMermaid(graph);
 
-    for (const file of files) {
-      const content = await fs.readFile(file.absolutePath, "utf-8");
-      const hash = crypto
-        .createHash("sha256")
-        .update(content)
-        .digest("hex")
-        .slice(0, 16);
+    // Read every file's content ONCE, with bounded concurrency, and reuse it
+    // for hashing + the file row AND for chunking below — avoids double disk I/O
+    // across the whole repo and avoids the fully-sequential await-in-a-loop.
+    const limit = pLimit(READ_CONCURRENCY);
+    const fileContents = new Map<string, string>();
 
-      const fileNode = graph.nodes.find(
-        (n) => n.type === "file" && n.id === file.relativePath,
-      );
+    const fileRecords = await Promise.all(
+      files.map((file) =>
+        limit(async () => {
+          const content = await fs.readFile(file.absolutePath, "utf-8");
+          fileContents.set(file.relativePath, content);
 
-      await prisma.file.create({
-        data: {
-          repositoryId: repo.id,
-          path: file.relativePath,
-          extension: file.extension,
-          language: file.extension.replace(".", ""),
-          size: file.size,
-          hash,
-          summary: (fileNode?.metadata?.summary as string) ?? null,
-        },
+          const hash = crypto
+            .createHash("sha256")
+            .update(content)
+            .digest("hex")
+            .slice(0, 16);
+
+          const fileNode = graph.nodes.find(
+            (n) => n.type === "file" && n.id === file.relativePath,
+          );
+
+          return {
+            id: crypto.randomUUID(),
+            repositoryId: repo.id,
+            path: file.relativePath,
+            extension: file.extension,
+            language: file.extension.replace(".", ""),
+            size: file.size,
+            hash,
+            summary: (fileNode?.metadata?.summary as string) ?? null,
+          };
+        }),
+      ),
+    );
+
+    // One bulk insert instead of N sequential prisma.file.create calls.
+    // IDs are generated client-side so chunkRepository can look them up
+    // without an extra round trip.
+    const INSERT_BATCH_SIZE = 500;
+    for (let i = 0; i < fileRecords.length; i += INSERT_BATCH_SIZE) {
+      await prisma.file.createMany({
+        data: fileRecords.slice(i, i + INSERT_BATCH_SIZE),
       });
     }
 
@@ -89,6 +116,44 @@ export async function repositoryProcessor(job: Job<RepositoryJob>) {
         content: JSON.stringify(graph),
       },
     });
+
+    await prisma.repository.update({
+      where: { id: repo.id },
+      data: { status: "SUMMARY" },
+    });
+
+    const summary = await generateSummary(graph, files, {
+      owner: repo.owner,
+      name: repo.name,
+      description: repo.description,
+      language: repo.language,
+      defaultBranch: repo.defaultBranch,
+      stars: repo.stars,
+      forks: repo.forks,
+    });
+
+    await prisma.aiArtifact.create({
+      data: {
+        repositoryId: repo.id,
+        type: "DOCUMENTATION",
+        content: summary,
+      },
+    });
+
+    await prisma.repository.update({
+      where: { id: repo.id },
+      data: { status: "CHUNKING" },
+    });
+
+    // Pass in the content we already read — chunkRepository won't hit disk again.
+    const chunkCount = await chunkRepository(repo.id, files, fileContents);
+
+    await prisma.repository.update({
+      where: { id: repo.id },
+      data: { status: "EMBEDDING" },
+    });
+
+    const embedCount = await embedRepositoryChunks(repo.id);
 
     await prisma.repository.update({
       where: { id: repo.id },

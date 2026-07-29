@@ -76,9 +76,10 @@ const deleteRepo = async (req: Request, res: Response) => {
 
   await prisma.repository.delete({ where: { id: repoId } });
 
-  return res
-    .status(200)
-    .json(new ApiResponse(200, null, "repository deleted"));
+  return res.status(200).json(new ApiResponse(200, null, "repository deleted"));
 };
 
-export { addRepo, getAllRepos, getRepoById, deleteRepo };
+const createChat = async (req: Request, res: Response) => {};
+
+const fetchChat = async (req: Request, res: Response) => {};
+export { addRepo, getAllRepos, getRepoById, deleteRepo, createChat, fetchChat };

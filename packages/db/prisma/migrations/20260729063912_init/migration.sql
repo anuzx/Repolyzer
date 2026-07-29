@@ -1,5 +1,7 @@
+CREATE EXTENSION IF NOT EXISTS vector;
+
 -- CreateEnum
-CREATE TYPE "RepoStatus" AS ENUM ('QUEUED', 'CLONING', 'PARSING', 'CHUNKING', 'EMBEDDING', 'COMPLETED', 'FAILED');
+CREATE TYPE "RepoStatus" AS ENUM ('QUEUED', 'CLONING', 'PARSING', 'SUMMARY', 'CHUNKING', 'EMBEDDING', 'COMPLETED', 'FAILED');
 
 -- CreateEnum
 CREATE TYPE "JobStatus" AS ENUM ('PENDING', 'RUNNING', 'COMPLETED', 'FAILED');
@@ -70,7 +72,8 @@ CREATE TABLE "Chunk" (
     "chunkIndex" INTEGER NOT NULL,
     "content" TEXT NOT NULL,
     "tokenCount" INTEGER,
-    "vectorId" TEXT NOT NULL,
+    "embedding" vector(1536),
+    "vectorId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Chunk_pkey" PRIMARY KEY ("id")

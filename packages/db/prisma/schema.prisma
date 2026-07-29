@@ -16,6 +16,7 @@ enum RepoStatus {
   QUEUED
   CLONING
   PARSING
+  SUMMARY
   CHUNKING
   EMBEDDING
   COMPLETED
@@ -126,12 +127,12 @@ model File {
 }
 
 model Chunk {
-  id            String @id @default(cuid())
+  id            String  @id @default(cuid())
 
   repositoryId  String
 
   fileId        String
-  file          File @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  file          File    @relation(fields: [fileId], references: [id], onDelete: Cascade)
 
   chunkIndex    Int
 
@@ -139,8 +140,9 @@ model Chunk {
 
   tokenCount    Int?
 
-  /// Chroma document ID
-  vectorId      String
+  embedding     Unsupported("vector(1536)")?
+
+  vectorId      String?
 
   createdAt     DateTime @default(now())
 

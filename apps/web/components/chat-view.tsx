@@ -12,6 +12,7 @@ import {
   FiMessageSquare,
 } from "react-icons/fi";
 import { PiRobotBold, PiUserBold } from "react-icons/pi";
+import { BACKEND_URL } from "../lib/config";
 
 interface Message {
   id: string;
@@ -174,12 +175,10 @@ function TypingDots() {
 const MessageList = memo(function MessageList({
   messages,
   streaming,
-  streamingText,
   streamError,
 }: {
   messages: Message[];
   streaming: boolean;
-  streamingText: string;
   streamError: string | null;
 }) {
   if (messages.length === 0 && !streaming) {
@@ -195,56 +194,53 @@ const MessageList = memo(function MessageList({
 
   return (
     <>
-      {messages.map((msg) => (
-        <div
-          key={msg.id}
-          className={`flex items-end gap-2 ${
-            msg.role === "USER" ? "justify-end" : "justify-start"
-          }`}
-        >
-          {msg.role === "ASSISTANT" && <Avatar role={msg.role} />}
-          {msg.role === "USER" ? (
-            <div
-              className="max-w-[75%] rounded-2xl rounded-br-sm px-4 py-2.5 bg-white text-black text-sm leading-relaxed whitespace-pre-wrap break-words shadow-sm"
-              style={{ fontFamily: "var(--font-sans)" }}
-            >
-              {msg.content}
-            </div>
-          ) : (
-            <div
-              className="max-w-[85%] rounded-2xl rounded-bl-sm px-4 py-2.5 bg-neutral-900/70 border border-neutral-800 shadow-sm"
-              style={{ fontFamily: "var(--font-sans)" }}
-            >
-              <ReactMarkdown
-                components={markdownComponents}
-                remarkPlugins={[remarkGfm]}
+      {messages.map((msg, i) => {
+        // The assistant reply being streamed lives directly in `messages`
+        // now (its content is mutated in place as chunks arrive), so the
+        // "is this the one currently streaming" check is just "is it the
+        // last item while streaming is true" — no separate shadow state to
+        // keep in sync with it.
+        const isStreamingLast =
+          streaming && i === messages.length - 1 && msg.role === "ASSISTANT";
+        return (
+          <div
+            key={msg.id}
+            className={`flex items-end gap-2 ${
+              msg.role === "USER" ? "justify-end" : "justify-start"
+            }`}
+          >
+            {msg.role === "ASSISTANT" && <Avatar role={msg.role} />}
+            {msg.role === "USER" ? (
+              <div
+                className="max-w-[75%] rounded-2xl rounded-br-sm px-4 py-2.5 bg-white text-black text-sm leading-relaxed whitespace-pre-wrap break-words shadow-sm"
+                style={{ fontFamily: "var(--font-sans)" }}
               >
                 {msg.content}
-              </ReactMarkdown>
-            </div>
-          )}
-          {msg.role === "USER" && <Avatar role={msg.role} />}
-        </div>
-      ))}
-      {streaming && !streamingText && (
-        <div className="flex items-end gap-2 justify-start">
-          <Avatar role="ASSISTANT" />
-          <div className="rounded-2xl rounded-bl-sm px-4 py-3 bg-neutral-900/70 border border-neutral-800">
-            <TypingDots />
+              </div>
+            ) : isStreamingLast && !msg.content ? (
+              <div className="rounded-2xl rounded-bl-sm px-4 py-3 bg-neutral-900/70 border border-neutral-800">
+                <TypingDots />
+              </div>
+            ) : (
+              <div
+                className="max-w-[85%] rounded-2xl rounded-bl-sm px-4 py-2.5 bg-neutral-900/70 border border-neutral-800 shadow-sm"
+                style={{ fontFamily: "var(--font-sans)" }}
+              >
+                <ReactMarkdown
+                  components={markdownComponents}
+                  remarkPlugins={[remarkGfm]}
+                >
+                  {msg.content}
+                </ReactMarkdown>
+                {isStreamingLast && (
+                  <span className="inline-block w-1.5 h-4 bg-white ml-0.5 animate-pulse align-text-bottom rounded-sm" />
+                )}
+              </div>
+            )}
+            {msg.role === "USER" && <Avatar role={msg.role} />}
           </div>
-        </div>
-      )}
-      {streaming && streamingText && (
-        <div className="flex items-end gap-2 justify-start">
-          <Avatar role="ASSISTANT" />
-          <div className="max-w-[85%] rounded-2xl rounded-bl-sm px-4 py-2.5 bg-neutral-900/70 border border-neutral-800">
-            <div className="text-sm text-neutral-200 leading-relaxed whitespace-pre-wrap break-words">
-              {streamingText}
-              <span className="inline-block w-1.5 h-4 bg-white ml-0.5 animate-pulse align-text-bottom rounded-sm" />
-            </div>
-          </div>
-        </div>
-      )}
+        );
+      })}
       {!streaming && streamError && (
         <div className="flex items-start gap-2 justify-start">
           <div className="w-7 h-7 rounded-full bg-red-950/60 border border-red-900/60 flex items-center justify-center shrink-0">
@@ -279,7 +275,6 @@ export function ChatView({
   const [chatId, setChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [streaming, setStreaming] = useState(false);
-  const [streamingText, setStreamingText] = useState("");
   const [streamError, setStreamError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -288,15 +283,28 @@ export function ChatView({
   const [canSend, setCanSend] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  // Tracks whether the user is scrolled near the bottom of the message
+  // list. Auto-scroll should only kick in while that's true — otherwise a
+  // deliberate scroll-up to reread earlier messages gets yanked back to the
+  // bottom on every streamed chunk.
+  const isNearBottomRef = useRef(true);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipNextHistoryFetchRef = useRef(false);
   const pendingMessageRef = useRef<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  // `streaming` (state) is what the UI renders off of, but state updates are
+  // batched/async — checking `if (streaming) return` at the top of
+  // handleSubmit can't stop a second call that fires before the first
+  // re-render commits (Enter + click, or the initialMessage auto-submit
+  // effect racing a manual send). This ref updates synchronously and is the
+  // actual guard against two concurrent submissions.
+  const streamingRef = useRef(false);
 
   const loadChats = useCallback(async () => {
     try {
-      const res = await fetch(`/api/repo/${repoId}/chats`);
+      const res = await fetch(`${BACKEND_URL}/api/repo/${repoId}/chats`);
       const body = await res.json();
       const list: ChatSummary[] = body.data || [];
       setChats(list);
@@ -306,11 +314,21 @@ export function ChatView({
     }
   }, [repoId]);
 
+  // Shared with the post-stream refresh below: the DB is the source of
+  // truth for message content, so both "load history" and "sync after a
+  // reply finishes" go through the same fetch instead of each constructing
+  // their own local Message objects.
+  const fetchMessages = useCallback(async (id: string) => {
+    const res = await fetch(`${BACKEND_URL}/api/chats/${id}/messages`);
+    const body = await res.json();
+    setMessages(body.data || []);
+  }, []);
+
   useEffect(() => {
     (async () => {
       const list = await loadChats();
       if (list.length > 0) {
-        setChatId(list[0].id);
+        setChatId(list[0]!.id);
       }
       setLoading(false);
     })();
@@ -325,21 +343,35 @@ export function ChatView({
       skipNextHistoryFetchRef.current = false;
       return;
     }
-    (async () => {
-      try {
-        const res = await fetch(`/api/chats/${chatId}/messages`);
-        const body = await res.json();
-        setMessages(body.data || []);
-      } catch {}
-    })();
-  }, [chatId]);
+    fetchMessages(chatId).catch(() => {});
+  }, [chatId, fetchMessages]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingText]);
+    // "smooth" here was the second half of the flicker: every streamed
+    // chunk changes `messages`, re-running this effect and restarting a new
+    // smooth-scroll animation on top of one that hadn't finished yet.
+    // Combined with the container height also shifting as content grew,
+    // that's what showed up as the input bar jittering up and down.
+    // Snapping directly to position avoids stacking animations.
+    // Only do this while the user is already near the bottom — otherwise a
+    // deliberate scroll-up to reread history gets fought on every chunk.
+    if (isNearBottomRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "auto" });
+    }
+  }, [messages]);
+
+  function handleMessagesScroll() {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const distanceFromBottom =
+      el.scrollHeight - el.scrollTop - el.clientHeight;
+    // Small threshold so it still counts as "at the bottom" even with a
+    // pixel or two of rounding slack.
+    isNearBottomRef.current = distanceFromBottom < 80;
+  }
 
   useEffect(() => {
-    if (!initialMessage || loading || streaming) return;
+    if (!initialMessage || loading || streamingRef.current) return;
     pendingMessageRef.current = initialMessage;
     onMessageUsed?.();
     const form = document.querySelector("#chat-form") as HTMLFormElement;
@@ -373,8 +405,8 @@ export function ChatView({
     setChatId(null);
     setMessages([]);
     setStreamError(null);
-    setStreamingText("");
     setDropdownOpen(false);
+    isNearBottomRef.current = true;
     if (inputRef.current) {
       inputRef.current.value = "";
       inputRef.current.focus();
@@ -386,23 +418,37 @@ export function ChatView({
     setDropdownOpen(false);
     if (streaming || id === chatId) return;
     setStreamError(null);
-    setStreamingText("");
+    isNearBottomRef.current = true;
     setChatId(id);
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const userMsg =
-      (inputRef.current?.value.trim() || pendingMessageRef.current || "").trim();
+    // Guard first, synchronously, before reading anything else. `streaming`
+    // (state) can't do this job — two calls fired close together (Enter +
+    // click, or the initialMessage effect racing a manual submit) can both
+    // observe `streaming === false` before either one's setStreaming(true)
+    // has actually committed a re-render. streamingRef flips instantly, so
+    // the second call is turned away immediately instead of racing the
+    // first one's fetch/DB writes.
+    if (streamingRef.current) return;
+
+    const userMsg = (
+      inputRef.current?.value.trim() ||
+      pendingMessageRef.current ||
+      ""
+    ).trim();
     pendingMessageRef.current = null;
-    if (!userMsg || streaming) return;
+    if (!userMsg) return;
+
+    streamingRef.current = true;
 
     let currentChatId = chatId;
     let isNewChat = false;
 
     if (!currentChatId) {
       try {
-        const res = await fetch(`/api/repo/${repoId}/chats`, {
+        const res = await fetch(`${BACKEND_URL}/api/repo/${repoId}/chats`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ title: userMsg.slice(0, 60) }),
@@ -414,12 +460,21 @@ export function ChatView({
         setChatId(currentChatId);
       } catch {
         setStreamError("Failed to start a new chat. Please try again.");
+        streamingRef.current = false;
         return;
       }
     }
 
     if (inputRef.current) inputRef.current.value = "";
     setCanSend(false);
+    // Sending is a deliberate action — always land on the new message even
+    // if the user had scrolled up to reread earlier history beforehand.
+    isNearBottomRef.current = true;
+    // Push the user message AND an empty assistant placeholder together.
+    // Chunks mutate this placeholder's `content` directly as they arrive —
+    // there's no separate shadow variable/state to reconcile at the end,
+    // which is what kept going wrong before.
+    const assistantId = crypto.randomUUID();
     setMessages((prev) => [
       ...prev,
       {
@@ -428,9 +483,14 @@ export function ChatView({
         content: userMsg,
         createdAt: new Date().toISOString(),
       },
+      {
+        id: assistantId,
+        role: "ASSISTANT",
+        content: "",
+        createdAt: new Date().toISOString(),
+      },
     ]);
     setStreaming(true);
-    setStreamingText("");
     setStreamError(null);
 
     if (isNewChat) {
@@ -439,14 +499,23 @@ export function ChatView({
       loadChats();
     }
 
+    // Declared outside the try so it's visible from the catch block too —
+    // used to decide whether to leave the (possibly partial) placeholder in
+    // place or remove it entirely when something goes wrong.
+    let gotContent = false;
+
     try {
-      const res = await fetch(`/api/chats/${currentChatId}/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: userMsg }),
-      });
+      const res = await fetch(
+        `${BACKEND_URL}/api/chats/${currentChatId}/messages`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content: userMsg }),
+        },
+      );
 
       if (!res.ok) {
+        setMessages((prev) => prev.filter((m) => m.id !== assistantId));
         setStreamError("Failed to send message. Please try again.");
         setStreaming(false);
         return;
@@ -454,19 +523,22 @@ export function ChatView({
 
       const reader = res.body?.getReader();
       if (!reader) {
+        setMessages((prev) => prev.filter((m) => m.id !== assistantId));
         setStreamError("Failed to connect to the chat stream.");
         setStreaming(false);
         return;
       }
 
       const decoder = new TextDecoder();
-      let full = "";
       // Bytes from reader.read() rarely align with SSE event boundaries — a
       // single "data: ...\n\n" frame can easily be split across two reads.
       // Buffer everything and only process complete frames (delimited by the
       // blank line "\n\n"), carrying any trailing partial frame forward.
       let buffer = "";
       let done_ = false;
+      // Tracks whether we actually saw a "[DONE]" frame, as opposed to the
+      // stream just being empty at loop-exit time.
+      let receivedDone = false;
 
       while (!done_) {
         const { done, value } = await reader.read();
@@ -492,33 +564,22 @@ export function ChatView({
           const payload = line.slice(6);
 
           if (payload === "[DONE]") {
+            receivedDone = true;
             // A stream can legitimately finish having produced no content
-            // (empty/aborted generation). Pushing that as a real ASSISTANT
-            // message left a permanent blank bubble in the chat. Surface it
-            // as an error instead of rendering nothing.
-            if (full.trim()) {
-              setMessages((prev) => [
-                ...prev,
-                {
-                  id: crypto.randomUUID(),
-                  role: "ASSISTANT",
-                  content: full,
-                  createdAt: new Date().toISOString(),
-                },
-              ]);
-            } else {
-              setStreamError(
-                "No response was generated. Please try again.",
-              );
+            // (empty/aborted generation). Leaving that as a permanent blank
+            // bubble is confusing — remove the placeholder and surface an
+            // error instead.
+            if (!gotContent) {
+              setMessages((prev) => prev.filter((m) => m.id !== assistantId));
+              setStreamError("No response was generated. Please try again.");
             }
-            setStreamingText("");
-            full = "";
             continue;
           }
 
           try {
             const parsed = JSON.parse(payload);
             if (parsed.error) {
+              setMessages((prev) => prev.filter((m) => m.id !== assistantId));
               setStreamError(
                 typeof parsed.error === "string"
                   ? parsed.error
@@ -528,25 +589,40 @@ export function ChatView({
               return;
             }
             if (parsed.content) {
-              full += parsed.content;
-              setStreamingText(full);
+              gotContent = true;
+              // Mutate the placeholder in place — matched by id, not by
+              // array position, so it stays correct regardless of anything
+              // else touching `messages` in between.
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === assistantId
+                    ? { ...m, content: m.content + parsed.content }
+                    : m,
+                ),
+              );
             }
           } catch {}
         }
       }
 
-      // If we exhausted the stream without ever seeing "[DONE]" or an
-      // error frame, the connection was almost certainly dropped somewhere
-      // between the server and the browser. Surface that clearly instead
-      // of leaving a silent, permanently-empty bubble.
-      if (!full && streamingText === "" && !streamError) {
+      // If we exhausted the stream without ever seeing a "[DONE]" frame, the
+      // connection was almost certainly dropped somewhere between the server
+      // and the browser.
+      if (!receivedDone && !streamError) {
+        if (!gotContent) {
+          setMessages((prev) => prev.filter((m) => m.id !== assistantId));
+        }
         setStreamError(
           "The response didn't stream through. This usually means something between the server and browser is buffering the connection — refresh to see if the reply saved.",
         );
       }
     } catch {
+      if (!gotContent) {
+        setMessages((prev) => prev.filter((m) => m.id !== assistantId));
+      }
       setStreamError("Connection lost while streaming. Please try again.");
     } finally {
+      streamingRef.current = false;
       setStreaming(false);
     }
   }
@@ -562,7 +638,11 @@ export function ChatView({
 
   const currentLabel = chatId
     ? chatLabel(
-        chats.find((c) => c.id === chatId) ?? { id: chatId, title: null, createdAt: "" },
+        chats.find((c) => c.id === chatId) ?? {
+          id: chatId,
+          title: null,
+          createdAt: "",
+        },
         chats.findIndex((c) => c.id === chatId),
         chats.length,
       )
@@ -624,15 +704,24 @@ export function ChatView({
       </div>
 
       {/* Conversation */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div
+        ref={messagesContainerRef}
+        onScroll={handleMessagesScroll}
+        className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4 no-scrollbar"
+        style={{ scrollbarWidth: "none", msOverflowStyle: "none", scrollBehavior: "smooth" }}
+      >
         <MessageList
           messages={messages}
           streaming={streaming}
-          streamingText={streamingText}
           streamError={streamError}
         />
         <div ref={messagesEndRef} />
       </div>
+      <style jsx>{`
+        .no-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
+      `}</style>
 
       <form
         id="chat-form"

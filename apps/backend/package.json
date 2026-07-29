@@ -5,6 +5,7 @@
   "private": true,
   "devDependencies": {
     "@types/bun": "latest",
+    "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6"
   },
   "peerDependencies": {
@@ -14,8 +15,9 @@
     "@repo/ai": "*",
     "@repo/common": "*",
     "@repo/db": "*",
-    "@repo/queue": "*",
     "@repo/github": "*",
+    "@repo/queue": "*",
+    "cors": "^2.8.6",
     "express": "^5.2.1"
   }
 }

@@ -3,10 +3,11 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { MermaidView } from "../../components/mermaid-view";
-import { SummaryView } from "../../components/summary-view";
-import { ChatView } from "../../components/chat-view";
-import { IssuesView } from "../../components/issues-view";
+import { MermaidView } from "../../../components/mermaid-view";
+import { SummaryView } from "../../../components/summary-view";
+import { ChatView } from "../../../components/chat-view";
+import { IssuesView } from "../../../components/issues-view";
+import { BACKEND_URL } from "../../../lib/config";
 
 interface RepoDetail {
   id: string;
@@ -92,7 +93,9 @@ export default function RepoPage() {
   const [archOpen, setArchOpen] = useState(true);
   const [filesOpen, setFilesOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [initialChatMessage, setInitialChatMessage] = useState<string | null>(null);
+  const [initialChatMessage, setInitialChatMessage] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     if (!id) return;
@@ -101,7 +104,7 @@ export default function RepoPage() {
 
     async function poll() {
       try {
-        const res = await fetch(`/api/repo/${id}`);
+        const res = await fetch(`${BACKEND_URL}/api/repo/${id}`);
         if (!res.ok) return;
         const body = await res.json();
         if (cancelled) return;
@@ -126,7 +129,7 @@ export default function RepoPage() {
   const handleDelete = useCallback(async () => {
     if (!confirm("Delete this repository and all its data?")) return;
     try {
-      const res = await fetch(`/api/repo/${id}`, { method: "DELETE" });
+      const res = await fetch(`${BACKEND_URL}/api/repo/${id}`, { method: "DELETE" });
       if (res.ok) router.push("/");
     } catch {}
   }, [id, router]);
@@ -186,7 +189,7 @@ export default function RepoPage() {
   }
 
   return (
-    <div className="min-h-screen bg-black flex flex-col">
+    <div className="h-screen bg-black flex flex-col">
       {/* Header */}
       <header className="flex items-center gap-3 px-5 py-3 border-b border-neutral-900 shrink-0">
         <Link

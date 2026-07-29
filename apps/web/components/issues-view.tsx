@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { BACKEND_URL } from "../lib/config";
 
 interface GithubIssue {
   id: string;
@@ -41,7 +42,7 @@ export function IssuesView({
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`/api/repo/${repoId}/issues`);
+        const res = await fetch(`${BACKEND_URL}/api/repo/${repoId}/issues`);
         const body = await res.json();
         setIssues(body.data || []);
       } catch {

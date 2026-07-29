@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import { BACKEND_URL } from "../lib/config";
 
 interface Repo {
   id: string;
@@ -48,7 +49,7 @@ export default function Home() {
 
   const fetchRepos = useCallback(async (): Promise<Repo[]> => {
     try {
-      const res = await fetch("/api/repo");
+      const res = await fetch(`${BACKEND_URL}/api/repo`);
       if (res.ok) {
         const body = await res.json();
         const data: Repo[] = body.data || [];
@@ -89,7 +90,7 @@ export default function Home() {
     setSubmitting(true);
     setError("");
     try {
-      const res = await fetch("/api/repo", {
+      const res = await fetch(`${BACKEND_URL}/api/repo`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ githubUrl: url }),

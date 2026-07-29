@@ -34,7 +34,7 @@ export function ZoomContainer({
   zoomRef.current = zoom;
   panRef.current = pan;
 
-  const clamp = (z: number) => Math.max(0.05, Math.min(z, 6));
+  const clamp = (z: number) => Math.max(1, z);
 
   const zoomAt = useCallback((factor: number, cx?: number, cy?: number) => {
     const z = zoomRef.current;

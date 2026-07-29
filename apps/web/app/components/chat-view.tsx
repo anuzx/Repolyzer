@@ -1,15 +1,30 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback, memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
+import {
+  FiChevronDown,
+  FiPlus,
+  FiSend,
+  FiAlertCircle,
+  FiMessageSquare,
+} from "react-icons/fi";
+import { PiRobotBold, PiUserBold } from "react-icons/pi";
 
 interface Message {
   id: string;
   role: "USER" | "ASSISTANT";
   content: string;
   createdAt: string;
+}
+
+interface ChatSummary {
+  id: string;
+  title: string | null;
+  createdAt: string;
+  _count?: { messages: number };
 }
 
 const markdownComponents: Components = {
@@ -128,41 +143,188 @@ const markdownComponents: Components = {
   hr: (props) => <hr className="border-neutral-800 my-4" {...props} />,
 };
 
-export function ChatView({ repoId }: { repoId: string }) {
+function Avatar({ role }: { role: "USER" | "ASSISTANT" }) {
+  if (role === "USER") {
+    return (
+      <div className="w-7 h-7 rounded-full bg-white flex items-center justify-center shrink-0">
+        <PiUserBold className="w-3.5 h-3.5 text-black" />
+      </div>
+    );
+  }
+  return (
+    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-neutral-700 to-neutral-900 border border-neutral-700 flex items-center justify-center shrink-0">
+      <PiRobotBold className="w-3.5 h-3.5 text-neutral-200" />
+    </div>
+  );
+}
+
+function TypingDots() {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className="w-1.5 h-1.5 rounded-full bg-neutral-400 animate-bounce [animation-delay:-0.3s]" />
+      <span className="w-1.5 h-1.5 rounded-full bg-neutral-400 animate-bounce [animation-delay:-0.15s]" />
+      <span className="w-1.5 h-1.5 rounded-full bg-neutral-400 animate-bounce" />
+    </span>
+  );
+}
+
+// Pulled out and memoized so that typing in the input (which only touches a
+// ref + a debounced boolean) never re-renders the (potentially long)
+// message history. Only re-renders when messages/streaming actually change.
+const MessageList = memo(function MessageList({
+  messages,
+  streaming,
+  streamingText,
+  streamError,
+}: {
+  messages: Message[];
+  streaming: boolean;
+  streamingText: string;
+  streamError: string | null;
+}) {
+  if (messages.length === 0 && !streaming) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-neutral-600 gap-2">
+        <FiMessageSquare className="w-6 h-6" />
+        <p className="text-sm text-neutral-500">
+          Ask a question about this codebase
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {messages.map((msg) => (
+        <div
+          key={msg.id}
+          className={`flex items-end gap-2 ${
+            msg.role === "USER" ? "justify-end" : "justify-start"
+          }`}
+        >
+          {msg.role === "ASSISTANT" && <Avatar role={msg.role} />}
+          {msg.role === "USER" ? (
+            <div
+              className="max-w-[75%] rounded-2xl rounded-br-sm px-4 py-2.5 bg-white text-black text-sm leading-relaxed whitespace-pre-wrap break-words shadow-sm"
+              style={{ fontFamily: "var(--font-sans)" }}
+            >
+              {msg.content}
+            </div>
+          ) : (
+            <div
+              className="max-w-[85%] rounded-2xl rounded-bl-sm px-4 py-2.5 bg-neutral-900/70 border border-neutral-800 shadow-sm"
+              style={{ fontFamily: "var(--font-sans)" }}
+            >
+              <ReactMarkdown
+                components={markdownComponents}
+                remarkPlugins={[remarkGfm]}
+              >
+                {msg.content}
+              </ReactMarkdown>
+            </div>
+          )}
+          {msg.role === "USER" && <Avatar role={msg.role} />}
+        </div>
+      ))}
+      {streaming && !streamingText && (
+        <div className="flex items-end gap-2 justify-start">
+          <Avatar role="ASSISTANT" />
+          <div className="rounded-2xl rounded-bl-sm px-4 py-3 bg-neutral-900/70 border border-neutral-800">
+            <TypingDots />
+          </div>
+        </div>
+      )}
+      {streaming && streamingText && (
+        <div className="flex items-end gap-2 justify-start">
+          <Avatar role="ASSISTANT" />
+          <div className="max-w-[85%] rounded-2xl rounded-bl-sm px-4 py-2.5 bg-neutral-900/70 border border-neutral-800">
+            <div className="text-sm text-neutral-200 leading-relaxed whitespace-pre-wrap break-words">
+              {streamingText}
+              <span className="inline-block w-1.5 h-4 bg-white ml-0.5 animate-pulse align-text-bottom rounded-sm" />
+            </div>
+          </div>
+        </div>
+      )}
+      {!streaming && streamError && (
+        <div className="flex items-start gap-2 justify-start">
+          <div className="w-7 h-7 rounded-full bg-red-950/60 border border-red-900/60 flex items-center justify-center shrink-0">
+            <FiAlertCircle className="w-3.5 h-3.5 text-red-400" />
+          </div>
+          <div className="max-w-[85%] rounded-2xl rounded-bl-sm px-4 py-2.5 bg-red-950/30 border border-red-900/50">
+            <p className="text-sm text-red-300">{streamError}</p>
+          </div>
+        </div>
+      )}
+    </>
+  );
+});
+
+function chatLabel(chat: ChatSummary, index: number, total: number) {
+  if (chat.title && chat.title.trim()) return chat.title;
+  const count = chat._count?.messages ?? 0;
+  if (count === 0) return "New chat";
+  return `Chat ${total - index}`;
+}
+
+export function ChatView({
+  repoId,
+  initialMessage,
+  onMessageUsed,
+}: {
+  repoId: string;
+  initialMessage?: string | null;
+  onMessageUsed?: () => void;
+}) {
+  const [chats, setChats] = useState<ChatSummary[]>([]);
   const [chatId, setChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [streamingText, setStreamingText] = useState("");
+  const [streamError, setStreamError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  // Debounced only for the Send button's enabled/disabled state — the
+  // actual text lives in inputRef so typing never triggers a re-render.
+  const [canSend, setCanSend] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  // Set right before we assign a brand-new chatId we created ourselves in
-  // handleSubmit. Lets the history-fetch effect below skip its GET for that
-  // chat — otherwise that GET runs in parallel with the streaming response
-  // and can resolve *after* the assistant message is appended locally,
-  // overwriting the screen with a stale DB snapshot that doesn't have the
-  // reply yet (it's only saved once the stream finishes on the backend).
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const skipNextHistoryFetchRef = useRef(false);
+  const pendingMessageRef = useRef<string | null>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch(`/api/repo/${repoId}/chats`);
-        const body = await res.json();
-        const chats = body.data;
-        if (chats && chats.length > 0) {
-          setChatId(chats[0].id);
-        }
-      } catch {
-      } finally {
-        setLoading(false);
-      }
-    })();
+  const loadChats = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/repo/${repoId}/chats`);
+      const body = await res.json();
+      const list: ChatSummary[] = body.data || [];
+      setChats(list);
+      return list;
+    } catch {
+      return [];
+    }
   }, [repoId]);
 
   useEffect(() => {
-    if (!chatId) return;
+    (async () => {
+      const list = await loadChats();
+      if (list.length > 0) {
+        setChatId(list[0].id);
+      }
+      setLoading(false);
+    })();
+  }, [loadChats]);
+
+  useEffect(() => {
+    if (!chatId) {
+      setMessages([]);
+      return;
+    }
+    if (skipNextHistoryFetchRef.current) {
+      skipNextHistoryFetchRef.current = false;
+      return;
+    }
     (async () => {
       try {
         const res = await fetch(`/api/chats/${chatId}/messages`);
@@ -176,29 +338,88 @@ export function ChatView({ repoId }: { repoId: string }) {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, streamingText]);
 
+  useEffect(() => {
+    if (!initialMessage || loading || streaming) return;
+    pendingMessageRef.current = initialMessage;
+    onMessageUsed?.();
+    const form = document.querySelector("#chat-form") as HTMLFormElement;
+    form?.requestSubmit();
+  }, [initialMessage, loading, streaming, onMessageUsed]);
+
+  // Close the chat-picker dropdown on outside click.
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    function handleClick(e: MouseEvent) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(e.target as Node)
+      ) {
+        setDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [dropdownOpen]);
+
+  function handleInputChange() {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setCanSend(!!inputRef.current?.value.trim());
+    }, 150);
+  }
+
+  function startNewChat() {
+    if (streaming) return;
+    setChatId(null);
+    setMessages([]);
+    setStreamError(null);
+    setStreamingText("");
+    setDropdownOpen(false);
+    if (inputRef.current) {
+      inputRef.current.value = "";
+      inputRef.current.focus();
+    }
+    setCanSend(false);
+  }
+
+  function switchChat(id: string) {
+    setDropdownOpen(false);
+    if (streaming || id === chatId) return;
+    setStreamError(null);
+    setStreamingText("");
+    setChatId(id);
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!input.trim() || streaming) return;
+    const userMsg =
+      (inputRef.current?.value.trim() || pendingMessageRef.current || "").trim();
+    pendingMessageRef.current = null;
+    if (!userMsg || streaming) return;
 
     let currentChatId = chatId;
+    let isNewChat = false;
 
     if (!currentChatId) {
       try {
         const res = await fetch(`/api/repo/${repoId}/chats`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({}),
+          body: JSON.stringify({ title: userMsg.slice(0, 60) }),
         });
         const body = await res.json();
         currentChatId = body.data.id;
+        isNewChat = true;
+        skipNextHistoryFetchRef.current = true;
         setChatId(currentChatId);
       } catch {
+        setStreamError("Failed to start a new chat. Please try again.");
         return;
       }
     }
 
-    const userMsg = input.trim();
-    setInput("");
+    if (inputRef.current) inputRef.current.value = "";
+    setCanSend(false);
     setMessages((prev) => [
       ...prev,
       {
@@ -210,6 +431,13 @@ export function ChatView({ repoId }: { repoId: string }) {
     ]);
     setStreaming(true);
     setStreamingText("");
+    setStreamError(null);
+
+    if (isNewChat) {
+      // Refresh the dropdown list in the background so the new chat shows
+      // up with its title without blocking the send.
+      loadChats();
+    }
 
     try {
       const res = await fetch(`/api/chats/${currentChatId}/messages`, {
@@ -219,12 +447,14 @@ export function ChatView({ repoId }: { repoId: string }) {
       });
 
       if (!res.ok) {
+        setStreamError("Failed to send message. Please try again.");
         setStreaming(false);
         return;
       }
 
       const reader = res.body?.getReader();
       if (!reader) {
+        setStreamError("Failed to connect to the chat stream.");
         setStreaming(false);
         return;
       }
@@ -252,20 +482,35 @@ export function ChatView({ repoId }: { repoId: string }) {
         buffer = frames.pop() ?? "";
 
         for (const frame of frames) {
+          // Heartbeat/keep-alive lines look like ": ping" — SSE comments,
+          // not data frames. They exist purely to keep proxies from
+          // deciding the connection is idle/dead; nothing to parse here.
+          if (frame.startsWith(":")) continue;
+
           const line = frame.split("\n").find((l) => l.startsWith("data: "));
           if (!line) continue;
           const payload = line.slice(6);
 
           if (payload === "[DONE]") {
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: crypto.randomUUID(),
-                role: "ASSISTANT",
-                content: full,
-                createdAt: new Date().toISOString(),
-              },
-            ]);
+            // A stream can legitimately finish having produced no content
+            // (empty/aborted generation). Pushing that as a real ASSISTANT
+            // message left a permanent blank bubble in the chat. Surface it
+            // as an error instead of rendering nothing.
+            if (full.trim()) {
+              setMessages((prev) => [
+                ...prev,
+                {
+                  id: crypto.randomUUID(),
+                  role: "ASSISTANT",
+                  content: full,
+                  createdAt: new Date().toISOString(),
+                },
+              ]);
+            } else {
+              setStreamError(
+                "No response was generated. Please try again.",
+              );
+            }
             setStreamingText("");
             full = "";
             continue;
@@ -274,6 +519,11 @@ export function ChatView({ repoId }: { repoId: string }) {
           try {
             const parsed = JSON.parse(payload);
             if (parsed.error) {
+              setStreamError(
+                typeof parsed.error === "string"
+                  ? parsed.error
+                  : "Something went wrong generating a response.",
+              );
               setStreaming(false);
               return;
             }
@@ -284,7 +534,18 @@ export function ChatView({ repoId }: { repoId: string }) {
           } catch {}
         }
       }
+
+      // If we exhausted the stream without ever seeing "[DONE]" or an
+      // error frame, the connection was almost certainly dropped somewhere
+      // between the server and the browser. Surface that clearly instead
+      // of leaving a silent, permanently-empty bubble.
+      if (!full && streamingText === "" && !streamError) {
+        setStreamError(
+          "The response didn't stream through. This usually means something between the server and browser is buffering the connection — refresh to see if the reply saved.",
+        );
+      }
     } catch {
+      setStreamError("Connection lost while streaming. Please try again.");
     } finally {
       setStreaming(false);
     }
@@ -299,75 +560,101 @@ export function ChatView({ repoId }: { repoId: string }) {
     );
   }
 
+  const currentLabel = chatId
+    ? chatLabel(
+        chats.find((c) => c.id === chatId) ?? { id: chatId, title: null, createdAt: "" },
+        chats.findIndex((c) => c.id === chatId),
+        chats.length,
+      )
+    : "New chat";
+
   return (
     <div className="flex-1 flex flex-col min-h-0">
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.length === 0 && !streaming && (
-          <div className="flex items-center justify-center h-full text-neutral-500 text-sm">
-            Ask a question about this codebase
-          </div>
-        )}
-        {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={`flex ${msg.role === "USER" ? "justify-end" : "justify-start"}`}
+      {/* Top bar: chat picker dropdown + new chat */}
+      <div className="flex items-center gap-2 px-4 py-2.5 border-b border-neutral-900 shrink-0">
+        <div className="relative" ref={dropdownRef}>
+          <button
+            onClick={() => setDropdownOpen((v) => !v)}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-neutral-800 text-sm text-neutral-200 hover:border-neutral-600 transition-colors"
           >
-            {msg.role === "USER" ? (
-              <div
-                className="max-w-[75%] rounded-lg px-4 py-2.5 bg-white text-black text-sm leading-relaxed whitespace-pre-wrap break-words"
-                style={{ fontFamily: "var(--font-sans)" }}
+            <FiMessageSquare className="w-3.5 h-3.5 text-neutral-500" />
+            <span className="max-w-[180px] truncate">{currentLabel}</span>
+            <FiChevronDown
+              className={`w-3.5 h-3.5 text-neutral-500 transition-transform ${
+                dropdownOpen ? "rotate-180" : ""
+              }`}
+            />
+          </button>
+
+          {dropdownOpen && (
+            <div className="absolute left-0 top-full mt-1.5 w-64 rounded-lg border border-neutral-800 bg-neutral-950 shadow-xl z-20 overflow-hidden">
+              <button
+                onClick={startNewChat}
+                disabled={streaming}
+                className="w-full flex items-center gap-2 px-3 py-2.5 text-sm text-neutral-200 hover:bg-neutral-900 disabled:opacity-30 disabled:cursor-not-allowed transition-colors border-b border-neutral-900"
               >
-                {msg.content}
-              </div>
-            ) : (
-              <div
-                className="max-w-[85%] rounded-lg px-4 py-2.5 bg-neutral-900 border border-neutral-800"
-                style={{ fontFamily: "var(--font-sans)" }}
-              >
-                <ReactMarkdown
-                  components={markdownComponents}
-                  remarkPlugins={[remarkGfm]}
-                >
-                  {msg.content}
-                </ReactMarkdown>
-              </div>
-            )}
-          </div>
-        ))}
-        {streaming && streamingText && (
-          <div className="flex justify-start">
-            <div className="max-w-[85%] rounded-lg px-4 py-2.5 bg-neutral-900 border border-neutral-800">
-              <div
-                className="text-sm text-neutral-200 leading-relaxed whitespace-pre-wrap break-words"
-                style={{ fontFamily: "var(--font-mono)" }}
-              >
-                {streamingText}
-                <span className="inline-block w-2 h-4 bg-white ml-0.5 animate-pulse align-text-bottom" />
+                <FiPlus className="w-3.5 h-3.5" />
+                New chat
+              </button>
+              <div className="max-h-64 overflow-y-auto py-1">
+                {chats.length === 0 && (
+                  <p className="text-xs text-neutral-700 px-3 py-2">
+                    No chats yet
+                  </p>
+                )}
+                {chats.map((c, i) => (
+                  <button
+                    key={c.id}
+                    onClick={() => switchChat(c.id)}
+                    disabled={streaming}
+                    className={`w-full text-left px-3 py-2 text-sm truncate transition-colors disabled:cursor-not-allowed ${
+                      c.id === chatId
+                        ? "bg-neutral-900 text-white"
+                        : "text-neutral-400 hover:text-neutral-100 hover:bg-neutral-900/60"
+                    }`}
+                    title={chatLabel(c, i, chats.length)}
+                  >
+                    {chatLabel(c, i, chats.length)}
+                  </button>
+                ))}
               </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
+      </div>
+
+      {/* Conversation */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <MessageList
+          messages={messages}
+          streaming={streaming}
+          streamingText={streamingText}
+          streamError={streamError}
+        />
         <div ref={messagesEndRef} />
       </div>
+
       <form
+        id="chat-form"
         onSubmit={handleSubmit}
-        className="flex gap-2 p-4 border-t border-neutral-900 shrink-0"
+        className="flex items-center gap-2 p-3 border-t border-neutral-900 shrink-0"
       >
         <input
           ref={inputRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
+          defaultValue=""
+          onChange={handleInputChange}
           placeholder="Ask about the codebase…"
           disabled={streaming}
-          className="flex-1 px-3 py-2 rounded-md bg-neutral-950 border border-neutral-800 text-white placeholder-neutral-600 focus:outline-none focus:ring-1 focus:ring-white text-sm disabled:opacity-40"
-          style={{ fontFamily: "var(--font-mono)" }}
+          className="flex-1 px-4 py-2.5 rounded-full bg-neutral-900/60 border border-neutral-800 text-white placeholder-neutral-600 focus:outline-none focus:ring-1 focus:ring-neutral-500 focus:border-neutral-600 text-sm disabled:opacity-40 transition-colors"
+          style={{ fontFamily: "var(--font-sans)" }}
         />
         <button
           type="submit"
-          disabled={streaming || !input.trim()}
-          className="px-4 py-2 rounded-md bg-white text-black text-sm font-medium hover:bg-neutral-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0"
+          disabled={streaming || !canSend}
+          className="w-10 h-10 shrink-0 flex items-center justify-center rounded-full bg-white text-black hover:bg-neutral-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          aria-label="Send message"
         >
-          Send
+          <FiSend className="w-4 h-4" />
         </button>
       </form>
     </div>

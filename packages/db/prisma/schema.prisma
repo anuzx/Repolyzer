@@ -30,13 +30,6 @@ enum JobStatus {
   FAILED
 }
 
-enum Severity {
-  LOW
-  MEDIUM
-  HIGH
-  CRITICAL
-}
-
 enum MessageRole {
   USER
   ASSISTANT
@@ -76,7 +69,7 @@ model Repository {
   files           File[]
   jobs            Job[]
   chats           Chat[]
-  issues          Issue[]
+  githubIssues    GithubIssue[]
   artifacts       AiArtifact[]
 
   createdAt       DateTime   @default(now())
@@ -119,7 +112,6 @@ model File {
   summary       String?
 
   chunks        Chunk[]
-  issues        Issue[]
 
   createdAt     DateTime @default(now())
 
@@ -150,27 +142,26 @@ model Chunk {
   @@index([fileId])
 }
 
-model Issue {
-  id             String @id @default(cuid())
+model GithubIssue {
+  id              String   @id @default(cuid())
 
-  repositoryId   String
-  repository     Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  repositoryId    String
+  repository      Repository @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
 
-  fileId         String?
-  file           File? @relation(fields: [fileId], references: [id], onDelete: SetNull)
+  issueNumber     Int
+  title           String
+  body            String?
+  labels          Json?
+  author          String
+  state           String   @default("open")
+  commentsCount   Int      @default(0)
+  url             String
+  githubCreatedAt DateTime
+  githubUpdatedAt DateTime
 
-  severity       Severity
+  createdAt       DateTime @default(now())
 
-  title          String
-
-  description    String
-
-  recommendation String
-
-  resolved       Boolean @default(false)
-
-  createdAt      DateTime @default(now())
-
+  @@unique([repositoryId, issueNumber])
   @@index([repositoryId])
 }
 

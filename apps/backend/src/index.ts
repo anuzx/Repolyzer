@@ -8,9 +8,11 @@ app.use(express.json());
 
 import repoRouter from "./routes/repos.routes";
 import chatRouter from "./routes/chat.routes";
+import issueRouter from "./routes/issues.routes";
 
 app.use("/api/repo", repoRouter);
 app.use("/api/chats", chatRouter);
+app.use("/api/repo", issueRouter);
 
 app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
   if (err instanceof ApiError) {

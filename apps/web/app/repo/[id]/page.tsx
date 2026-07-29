@@ -6,6 +6,7 @@ import Link from "next/link";
 import { MermaidView } from "../../components/mermaid-view";
 import { SummaryView } from "../../components/summary-view";
 import { ChatView } from "../../components/chat-view";
+import { IssuesView } from "../../components/issues-view";
 
 interface RepoDetail {
   id: string;
@@ -91,6 +92,7 @@ export default function RepoPage() {
   const [archOpen, setArchOpen] = useState(true);
   const [filesOpen, setFilesOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [initialChatMessage, setInitialChatMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -346,13 +348,23 @@ export default function RepoPage() {
                 return <SummaryView content={summaryArtifact?.content ?? ""} />;
               }
               if (tab === "chat") {
-                return <ChatView repoId={repo.id} />;
+                return (
+                  <ChatView
+                    repoId={repo.id}
+                    initialMessage={initialChatMessage}
+                    onMessageUsed={() => setInitialChatMessage(null)}
+                  />
+                );
               }
               if (tab === "issues") {
                 return (
-                  <div className="flex-1 flex items-center justify-center text-neutral-600 text-sm">
-                    Issues coming soon
-                  </div>
+                  <IssuesView
+                    repoId={repo.id}
+                    onChatAboutIssue={(msg) => {
+                      setInitialChatMessage(msg);
+                      setTab("chat");
+                    }}
+                  />
                 );
               }
               if (!mermaidData) {

@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { MermaidView } from "../../components/mermaid-view";
 import { SummaryView } from "../../components/summary-view";
+import { ChatView } from "../../components/chat-view";
 
 interface RepoDetail {
   id: string;
@@ -345,11 +346,7 @@ export default function RepoPage() {
                 return <SummaryView content={summaryArtifact?.content ?? ""} />;
               }
               if (tab === "chat") {
-                return (
-                  <div className="flex-1 flex items-center justify-center text-neutral-600 text-sm">
-                    Chat coming soon
-                  </div>
-                );
+                return <ChatView repoId={repo.id} />;
               }
               if (tab === "issues") {
                 return (

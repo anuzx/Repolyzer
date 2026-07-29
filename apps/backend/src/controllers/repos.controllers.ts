@@ -79,7 +79,50 @@ const deleteRepo = async (req: Request, res: Response) => {
   return res.status(200).json(new ApiResponse(200, null, "repository deleted"));
 };
 
-const createChat = async (req: Request, res: Response) => {};
+const createChat = async (req: Request, res: Response) => {
+  const repoId = req.params.repoId as string;
 
-const fetchChat = async (req: Request, res: Response) => {};
+  const repository = await prisma.repository.findUnique({
+    where: { id: repoId },
+  });
+
+  if (!repository) {
+    throw new ApiError(404, "repository not found");
+  }
+
+  const chat = await prisma.chat.create({
+    data: {
+      repositoryId: repoId,
+      title: req.body.title ?? null,
+    },
+  });
+
+  return res
+    .status(201)
+    .json(new ApiResponse(201, chat, "chat created"));
+};
+
+const fetchChat = async (req: Request, res: Response) => {
+  const repoId = req.params.repoId as string;
+
+  const repository = await prisma.repository.findUnique({
+    where: { id: repoId },
+  });
+
+  if (!repository) {
+    throw new ApiError(404, "repository not found");
+  }
+
+  const chats = await prisma.chat.findMany({
+    where: { repositoryId: repoId },
+    orderBy: { createdAt: "desc" },
+    include: {
+      _count: { select: { messages: true } },
+    },
+  });
+
+  return res
+    .status(200)
+    .json(new ApiResponse(200, chats, "chats fetched"));
+};
 export { addRepo, getAllRepos, getRepoById, deleteRepo, createChat, fetchChat };

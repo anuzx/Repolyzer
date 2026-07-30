@@ -197,33 +197,19 @@ function buildContextBlocks(
   return ["Relevant code from the repository:", ...blocks].join("\n\n");
 }
 
-export const sendMessage = async (req: Request, res: Response) => {
-  const chatId = req.params.chatId as string;
-  const { content, issueNumber } = req.body;
-
-  if (!content || typeof content !== "string" || !content.trim()) {
-    throw new ApiError(400, "message content is required");
-  }
-
-  const chat = await prisma.chat.findUnique({
-    where: { id: chatId },
-    include: { repository: true },
-  });
-
-  if (!chat) {
-    throw new ApiError(404, "chat not found");
-  }
-
-  const repoId = chat.repositoryId;
-
-  await prisma.message.create({
-    data: {
-      chatId,
-      role: "USER",
-      content: content.trim(),
-    },
-  });
-
+// Shared by sendMessage (user typed something) and startIssueChat (an issue
+// was clicked). Both cases boil down to the same thing once a Message with
+// role USER already exists in the DB: gather context, stream a reply, persist
+// it. Keeping this in one place means issueContext/kgContext/history behavior
+// never drifts between the two entry points.
+async function streamAssistantReply(
+  req: Request,
+  res: Response,
+  chatId: string,
+  repoId: string,
+  content: string,
+  issueNumber?: number,
+): Promise<void> {
   const [chunks, historyDesc, kgArtifact] = await Promise.all([
     findRelevantChunks(repoId, content),
     // orderBy desc + take so we get the MOST RECENT N messages (including
@@ -267,7 +253,9 @@ export const sendMessage = async (req: Request, res: Response) => {
           "## Context: GitHub Issue #" + issue.issueNumber,
           `Title: ${issue.title}`,
           labelsText,
-          issue.body ? `Description:\n> ${issue.body.replace(/\n/g, "\n> ")}` : "",
+          issue.body
+            ? `Description:\n> ${issue.body.replace(/\n/g, "\n> ")}`
+            : "",
         ]
           .filter(Boolean)
           .join("\n");
@@ -299,17 +287,7 @@ export const sendMessage = async (req: Request, res: Response) => {
     });
   }
 
-  res.setHeader("Content-Type", "text/event-stream");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
-  // Tells nginx (or any similar reverse proxy) not to buffer this response.
-  // Without this, a proxy sitting in front of the API can silently collapse
-  // the whole SSE stream into one delayed chunk on the client side.
-  res.setHeader("X-Accel-Buffering", "no");
-  res.flushHeaders();
-
   let fullResponse = "";
-
 
   const HEARTBEAT_INTERVAL_MS = 15000;
   const heartbeat = setInterval(() => {
@@ -329,7 +307,6 @@ export const sendMessage = async (req: Request, res: Response) => {
     });
 
     stopHeartbeat();
-
 
     if (!fullResponse.trim()) {
       res.write(
@@ -370,9 +347,128 @@ export const sendMessage = async (req: Request, res: Response) => {
     res.write(`data: ${JSON.stringify({ error: errorMsg })}\n\n`);
     res.end();
   }
+}
+
+/**
+ *
+ *Triggered when a user clicks an issue and wants to jump straight into a
+ chat about it: creates a new chat for the repo, seeds it with a message
+ asking the model to locate the relevant file(s) and propose a fix, then
+ streams the reply the same way sendMessage does.
+
+ Because this is an SSE response, there's no ordinary JSON body to hand
+ back the new chat's id — so the very first thing written to the stream is
+  a `chat` event carrying { chatId }. The frontend should read that first,
+  then treat everything after it exactly like a normal sendMessage stream
+ (data: {content} chunks, then data: [DONE]).
+ */
+const sendMessage = async (req: Request, res: Response) => {
+  const chatId = req.params.chatId as string;
+  const { content, issueNumber } = req.body;
+
+  if (!content || typeof content !== "string" || !content.trim()) {
+    throw new ApiError(400, "message content is required");
+  }
+
+  const chat = await prisma.chat.findUnique({
+    where: { id: chatId },
+    include: { repository: true },
+  });
+
+  if (!chat) {
+    throw new ApiError(404, "chat not found");
+  }
+
+  const repoId = chat.repositoryId;
+  const trimmed = content.trim();
+
+  await prisma.message.create({
+    data: {
+      chatId,
+      role: "USER",
+      content: trimmed,
+    },
+  });
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+
+  await streamAssistantReply(req, res, chatId, repoId, trimmed, issueNumber);
 };
 
-export const getMessages = async (req: Request, res: Response) => {
+const startIssueChat = async (req: Request, res: Response) => {
+  const repoId = req.params.repoId as string;
+  const issueNumber = parseInt(req.params.issueNumber as string, 10);
+
+  if (Number.isNaN(issueNumber)) {
+    throw new ApiError(400, "invalid issue number");
+  }
+
+  const repository = await prisma.repository.findUnique({
+    where: { id: repoId },
+  });
+
+  if (!repository) {
+    throw new ApiError(404, "repository not found");
+  }
+
+  const issue = await prisma.githubIssue.findUnique({
+    where: { repositoryId_issueNumber: { repositoryId: repoId, issueNumber } },
+  });
+
+  if (!issue) {
+    throw new ApiError(404, "issue not found");
+  }
+
+  const chat = await prisma.chat.create({
+    data: {
+      repositoryId: repoId,
+      title: `Issue #${issue.issueNumber}: ${issue.title}`.slice(0, 200),
+    },
+  });
+
+  const prompt = [
+    `I want to work on GitHub issue #${issue.issueNumber}: "${issue.title}".`,
+    "",
+    issue.body
+      ? `Description:\n${issue.body}`
+      : "No description was provided for this issue.",
+    "",
+    "Based on this repository's code, which file(s) does this issue most likely",
+    "live in, and how would you go about solving it? Be specific about file",
+    "paths, and outline the concrete change needed.",
+  ].join("\n");
+
+  await prisma.message.create({
+    data: {
+      chatId: chat.id,
+      role: "USER",
+      content: prompt,
+    },
+  });
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+
+  res.write(`event: chat\ndata: ${JSON.stringify({ chatId: chat.id })}\n\n`);
+
+  await streamAssistantReply(
+    req,
+    res,
+    chat.id,
+    repoId,
+    prompt,
+    issue.issueNumber,
+  );
+};
+
+const getMessages = async (req: Request, res: Response) => {
   const chatId = req.params.chatId as string;
 
   const chat = await prisma.chat.findUnique({
@@ -392,3 +488,5 @@ export const getMessages = async (req: Request, res: Response) => {
     .status(200)
     .json(new ApiResponse(200, messages, "messages fetched"));
 };
+
+export { sendMessage, startIssueChat, getMessages };

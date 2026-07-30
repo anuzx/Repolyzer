@@ -161,13 +161,23 @@ export function buildTsKnowledgeGraph(
 
       fileNode.metadata.summary = buildSummary(exportedNames, sf);
 
+      // Track unresolved, non-relative specifiers (i.e. real npm packages) separately
+      // from internal imports. This is the evidence system-diagram.service.ts uses to
+      // detect infra (Redis, Postgres, HTTP frameworks, ...) per file/service — an
+      // import edge alone can't tell you a file talks to Redis, but the specifier can.
+      const externalImports: string[] = [];
+
       for (const imp of sf.getImportDeclarations()) {
         const specifier = imp.getModuleSpecifierValue();
         const resolved = resolveImport(specifier, file.absolutePath, absPaths, absToRel);
         if (resolved) {
           graph.edges.push(edge(file.relativePath, resolved, "imports"));
+        } else if (!specifier.startsWith(".") && !specifier.startsWith("/")) {
+          externalImports.push(specifier);
         }
       }
+
+      fileNode.metadata.externalImports = externalImports;
     } catch {
       if (!graph.nodes.find((n) => n.id === file.relativePath)) {
         graph.nodes.push(

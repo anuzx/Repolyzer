@@ -27,6 +27,7 @@ interface RepoDetail {
 
 type TabId =
   | "system-architecture"
+  | "code-layers"
   | "file-dependencies"
   | "class-diagram"
   | "summary"
@@ -70,6 +71,7 @@ const STATUS_DOT: Record<string, string> = {
 
 const TAB_LABEL: Record<TabId, string> = {
   "system-architecture": "System Architecture",
+  "code-layers": "Code Layers",
   "file-dependencies": "File Dependencies",
   "class-diagram": "Class Diagram",
   summary: "Summary",
@@ -78,8 +80,13 @@ const TAB_LABEL: Record<TabId, string> = {
   files: "Files",
 };
 
+// Only the diagrams that live inside the ARCHITECTURE artifact's JSON blob
+// (graph.service.ts's MermaidOutput) go through this lookup. The true
+// system diagram (SYSTEM_ARCHITECTURE artifact) is a raw mermaid string on
+// its own artifact row, not a key inside this object — handled separately
+// below instead of through TAB_DATA_KEY.
 const TAB_DATA_KEY: Record<string, string> = {
-  "system-architecture": "architecture",
+  "code-layers": "architecture",
   "file-dependencies": "flowchart",
   "class-diagram": "classDiagram",
 };
@@ -169,6 +176,9 @@ export default function RepoPage() {
   const processing = !completed && repo.status !== "FAILED";
 
   const archArtifact = repo.artifacts.find((a) => a.type === "ARCHITECTURE");
+  const systemArchArtifact = repo.artifacts.find(
+    (a) => a.type === "SYSTEM_ARCHITECTURE",
+  );
   const summaryArtifact = repo.artifacts.find(
     (a) => a.type === "DOCUMENTATION",
   );
@@ -184,6 +194,7 @@ export default function RepoPage() {
       label: "Architecture",
       children: [
         { id: "system-architecture", label: "System Architecture" },
+        { id: "code-layers", label: "Code Layers" },
         { id: "file-dependencies", label: "File Dependencies" },
         { id: "class-diagram", label: "Class Diagram" },
       ],
@@ -383,6 +394,30 @@ export default function RepoPage() {
               }
               if (tab === "files") {
                 return <FilesView files={repo.files} />;
+              }
+              if (tab === "system-architecture") {
+                // Own artifact row (a raw mermaid string), not part of the
+                // mermaidData JSON blob the other three diagrams share —
+                // this is the true "how do backend/frontend/workers/infra
+                // talk to each other" diagram, synthesized from detected
+                // services + infra, not a file/import graph.
+                if (!systemArchArtifact?.content) {
+                  return (
+                    <div className="flex-1 flex items-center justify-center text-neutral-600 text-sm text-center px-6">
+                      No system architecture diagram available yet — this repo
+                      was likely analyzed before that feature was added.
+                      Re-run analysis to generate one.
+                    </div>
+                  );
+                }
+                return (
+                  <div className="flex-1 flex flex-col min-h-0">
+                    <MermaidView
+                      chart={systemArchArtifact.content}
+                      id="mermaid-system-architecture"
+                    />
+                  </div>
+                );
               }
               if (!mermaidData) {
                 return (

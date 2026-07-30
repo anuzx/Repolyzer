@@ -7,6 +7,7 @@ import pLimit from "p-limit";
 import { scanRepository } from "../services/scan.service";
 import { buildKnowledgeGraph } from "../services/ast";
 import { generateMermaid } from "../services/graph.service";
+import { generateSystemArchitecture } from "../services/system-diagram.service";
 import { generateSummary } from "../services/summary.service";
 import { chunkRepository } from "../services/chunk.service";
 import { embedRepositoryChunks } from "../services/embedding.service";
@@ -23,7 +24,7 @@ function extractFileDescription(content: string, extension: string): string | nu
   const lines = content.split("\n");
   const maxLines = 20;
   for (let i = 0; i < Math.min(lines.length, maxLines); i++) {
-    const trimmed = lines[i].trim();
+    const trimmed = lines[i]!.trim();
     if (trimmed.startsWith("#!")) continue;
     if (trimmed.startsWith("#")) {
       const desc = trimmed.replace(/^#\s*/, "");
@@ -132,6 +133,22 @@ export async function repositoryProcessor(job: Job<RepositoryJob>) {
         repositoryId: repo.id,
         type: "ARCHITECTURE",
         content: JSON.stringify(mermaid),
+      },
+    });
+
+    // Requires fileContents (populated just above) to read package.json contents
+    // for service/dependency detection — must run after that loop, not before.
+    const systemArchitecture = await generateSystemArchitecture(graph, files, fileContents, {
+      owner: repo.owner,
+      name: repo.name,
+      description: repo.description,
+    });
+
+    await prisma.aiArtifact.create({
+      data: {
+        repositoryId: repo.id,
+        type: "SYSTEM_ARCHITECTURE",
+        content: systemArchitecture,
       },
     });
 

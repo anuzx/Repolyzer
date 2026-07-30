@@ -149,7 +149,7 @@ export function IssuesView({
                     <button
                       onClick={() =>
                         onChatAboutIssue(
-                          `Help me understand and resolve issue #${issue.issueNumber}: ${issue.title}`,
+                          `Which file(s) in this repository does issue #${issue.issueNumber} ("${issue.title}") most likely belong to, and how would you solve it?`,
                           issue.issueNumber,
                         )
                       }

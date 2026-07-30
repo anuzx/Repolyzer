@@ -121,13 +121,12 @@ export async function buildPyKnowledgeGraph(
 
     const layer = classifyByPath(file.relativePath);
 
-    graph.nodes.push(
-      node("file", file.relativePath, file.relativePath, layer, {
-        extension: file.extension,
-        size: file.size,
-        summary: fileData.summary,
-      }),
-    );
+    const fileNode = node("file", file.relativePath, file.relativePath, layer, {
+      extension: file.extension,
+      size: file.size,
+      summary: fileData.summary,
+    });
+    graph.nodes.push(fileNode);
 
     for (const pyNode of fileData.nodes) {
       pyNode.layer = layer;
@@ -138,12 +137,20 @@ export async function buildPyKnowledgeGraph(
       graph.edges.push(pyEdge as unknown as GraphEdge);
     }
 
+    // Same rationale as ts_ast.service.ts: collect real pip packages (not stdlib,
+    // not relative imports) as evidence for system-diagram.service.ts's infra detection.
+    const externalImports: string[] = [];
+
     for (const imp of fileData.imports) {
       const resolved = resolvePyImport(imp.module, file.absolutePath, absPaths, absToRel);
       if (resolved) {
         graph.edges.push(edge(file.relativePath, resolved, "imports"));
+      } else if (isExternalPyModule(imp.module)) {
+        externalImports.push(imp.module.split(".")[0]!);
       }
     }
+
+    fileNode.metadata.externalImports = externalImports;
   }
 
   return graph;
@@ -193,6 +200,36 @@ function spawnPython(
   });
 }
 
+const STDLIB_MODULES = new Set([
+  "os", "sys", "re", "json", "math", "collections", "itertools", "functools",
+  "pathlib", "typing", "datetime", "uuid", "hashlib", "base64", "copy",
+  "abc", "enum", "dataclasses", "inspect", "textwrap", "string",
+  "random", "statistics", "decimal", "fractions", "io", "types", "pickle",
+  "sqlite3", "xml", "csv", "configparser", "argparse", "logging", "warnings",
+  "traceback", "pprint", "tempfile", "shutil", "glob", "fnmatch", "linecache",
+  "ast", "dis", "tokenize", "keyword", "token", "symtable", "builtins",
+  "__future__", "gc", "sysconfig", "site", "imp", "importlib", "modulefinder",
+  "runpy", "zipimport", "pkgutil", "pdb", "profile", "timeit", "unittest",
+  "doctest", "subprocess", "threading", "multiprocessing", "concurrent",
+  "socket", "ssl", "email", "mailbox", "mimetypes", "base64", "binascii",
+  "struct", "codecs", "difflib", "unicodedata", "stringprep",
+  "readline", "rlcompleter", "platform", "errno", "ctypes", "array",
+  "weakref", "numbers", "secrets", "os.path",
+]);
+
+// A module is "external" (a real pip package, not stdlib/relative/private) when
+// system-diagram.service.ts should be able to look it up as evidence of infra
+// usage (e.g. `redis`, `psycopg2`, `fastapi`).
+function isExternalPyModule(module: string): boolean {
+  if (!module || module.startsWith(".") || module.startsWith("http") || module.startsWith("git+")) {
+    return false;
+  }
+  const topLevel = module.split(".")[0]!;
+  if (STDLIB_MODULES.has(topLevel)) return false;
+  if (topLevel.startsWith("_")) return false;
+  return true;
+}
+
 function resolvePyImport(
   module: string,
   sourceFileAbs: string,
@@ -201,29 +238,12 @@ function resolvePyImport(
 ): string | null {
   if (!module || module.startsWith("http") || module.startsWith("git+")) return null;
 
-  const stdlibModules = new Set([
-    "os", "sys", "re", "json", "math", "collections", "itertools", "functools",
-    "pathlib", "typing", "datetime", "uuid", "hashlib", "base64", "copy",
-    "abc", "enum", "dataclasses", "inspect", "textwrap", "string",
-    "random", "statistics", "decimal", "fractions", "io", "types", "pickle",
-    "sqlite3", "xml", "csv", "configparser", "argparse", "logging", "warnings",
-    "traceback", "pprint", "tempfile", "shutil", "glob", "fnmatch", "linecache",
-    "ast", "dis", "tokenize", "keyword", "token", "symtable", "builtins",
-    "__future__", "gc", "sysconfig", "site", "imp", "importlib", "modulefinder",
-    "runpy", "zipimport", "pkgutil", "pdb", "profile", "timeit", "unittest",
-    "doctest", "subprocess", "threading", "multiprocessing", "concurrent",
-    "socket", "ssl", "email", "mailbox", "mimetypes", "base64", "binascii",
-    "struct", "codecs", "difflib", "unicodedata", "stringprep",
-    "readline", "rlcompleter", "platform", "errno", "ctypes", "array",
-    "weakref", "numbers", "secrets", "os.path",
-  ]);
-
   if (module.startsWith(".")) {
     return resolveRelativePyImport(module, sourceFileAbs, scannedAbs, absToRel);
   }
 
   const topLevel = module.split(".")[0]!;
-  if (stdlibModules.has(topLevel)) return null;
+  if (STDLIB_MODULES.has(topLevel)) return null;
   if (topLevel.startsWith("_")) return null;
 
   return resolveAbsolutePyImport(module, sourceFileAbs, scannedAbs, absToRel);

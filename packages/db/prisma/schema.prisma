@@ -4,12 +4,14 @@
 // Get a free hosted Postgres database in seconds: `npx create-db`
 
 generator client {
-  provider = "prisma-client"
-  output   = "../generated/prisma"
+  provider        = "prisma-client"
+  output          = "../generated/prisma"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
 datasource db {
-  provider = "postgresql"
+  provider   = "postgresql"
+  extensions = [vector]
 }
 
 enum RepoStatus {
@@ -43,6 +45,7 @@ enum ArtifactType {
   FOLDER_GUIDE
   NOTEBOOK
   CODE_REVIEW
+  SYSTEM_ARCHITECTURE
 }
 
 model Repository {

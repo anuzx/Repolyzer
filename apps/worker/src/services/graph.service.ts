@@ -26,7 +26,7 @@ export async function generateMermaid(
   };
 }
 
-function nodeKey(path: string): string {
+export function nodeKey(path: string): string {
   let hash = 5381;
   for (let i = 0; i < path.length; i++) {
     hash = ((hash << 5) + hash + path.charCodeAt(i)) | 0;
@@ -38,7 +38,7 @@ function clsKey(name: string): string {
   return "c" + name.replace(/[^a-zA-Z0-9]/g, "_");
 }
 
-function esc(value: string): string {
+export function esc(value: string): string {
   return value
     .replace(/"/g, "#quot;")
     .replace(/\[/g, "&#91;")

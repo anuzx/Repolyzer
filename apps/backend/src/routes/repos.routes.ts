@@ -5,7 +5,8 @@ import {
   getRepoById,
   deleteRepo,
   createChat,
-  fetchChat
+  fetchChat,
+  retryRepo,
 } from "../controllers/repos.controllers";
 
 const router = Router();
@@ -15,4 +16,5 @@ router.get("/", getAllRepos);
 router.route("/:repoId").get(getRepoById).delete(deleteRepo);
 
 router.route("/:repoId/chats").post(createChat).get(fetchChat);
+router.post("/:repoId/retry", retryRepo);
 export default router;

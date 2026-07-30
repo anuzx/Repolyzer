@@ -5,7 +5,7 @@ import { prisma } from "@repo/db";
 import type { Job } from "bullmq";
 import pLimit from "p-limit";
 import { scanRepository } from "../services/scan.service";
-import { buildKnowledgeGraph } from "../services/ast.service";
+import { buildKnowledgeGraph } from "../services/ast";
 import { generateMermaid } from "../services/graph.service";
 import { generateSummary } from "../services/summary.service";
 import { chunkRepository } from "../services/chunk.service";
@@ -18,6 +18,32 @@ export interface RepositoryJob {
 }
 
 const READ_CONCURRENCY = 15;
+
+function extractFileDescription(content: string, extension: string): string | null {
+  const lines = content.split("\n");
+  const maxLines = 20;
+  for (let i = 0; i < Math.min(lines.length, maxLines); i++) {
+    const trimmed = lines[i].trim();
+    if (trimmed.startsWith("#!")) continue;
+    if (trimmed.startsWith("#")) {
+      const desc = trimmed.replace(/^#\s*/, "");
+      if (desc) return desc.slice(0, 120);
+    }
+    if (trimmed.startsWith("//")) {
+      const desc = trimmed.replace(/^\/\/\s*/, "");
+      if (desc) return desc.slice(0, 120);
+    }
+    if (/^\/\*+/.test(trimmed)) {
+      const desc = trimmed.replace(/^\/\*+\*?\s*/, "").replace(/\s*\*+\/$/, "");
+      if (desc) return desc.slice(0, 120);
+    }
+    if (/^\s*\*/.test(trimmed)) {
+      const desc = trimmed.replace(/^\s*\*\s*/, "");
+      if (desc) return desc.slice(0, 120);
+    }
+  }
+  return null;
+}
 
 export async function repositoryProcessor(job: Job<RepositoryJob>) {
   const repo = await prisma.repository.findUnique({
@@ -85,7 +111,7 @@ export async function repositoryProcessor(job: Job<RepositoryJob>) {
             language: file.extension.replace(".", ""),
             size: file.size,
             hash,
-            summary: (fileNode?.metadata?.summary as string) ?? null,
+            summary: extractFileDescription(content, file.extension) ?? (fileNode?.metadata?.summary as string) ?? null,
           };
         }),
       ),

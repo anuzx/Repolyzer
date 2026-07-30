@@ -7,6 +7,7 @@ import { MermaidView } from "../../../components/mermaid-view";
 import { SummaryView } from "../../../components/summary-view";
 import { ChatView } from "../../../components/chat-view";
 import { IssuesView } from "../../../components/issues-view";
+import { FilesView } from "../../../components/files-view";
 import { BACKEND_URL } from "../../../lib/config";
 
 interface RepoDetail {
@@ -20,7 +21,7 @@ interface RepoDetail {
   defaultBranch: string | null;
   status: string;
   createdAt: string;
-  files: { path: string; extension: string | null }[];
+  files: { path: string; extension: string | null; summary: string | null }[];
   artifacts: { type: string; content: string }[];
 }
 
@@ -30,7 +31,8 @@ type TabId =
   | "class-diagram"
   | "summary"
   | "chat"
-  | "issues";
+  | "issues"
+  | "files";
 
 interface NavFolder {
   label: string;
@@ -73,6 +75,7 @@ const TAB_LABEL: Record<TabId, string> = {
   summary: "Summary",
   chat: "Chat",
   issues: "Issues",
+  files: "Files",
 };
 
 const TAB_DATA_KEY: Record<string, string> = {
@@ -91,11 +94,15 @@ export default function RepoPage() {
   const [repo, setRepo] = useState<RepoDetail | null>(null);
   const [tab, setTab] = useState<TabId>("system-architecture");
   const [archOpen, setArchOpen] = useState(true);
-  const [filesOpen, setFilesOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [initialChatMessage, setInitialChatMessage] = useState<string | null>(
-    null,
-  );
+  const [initialChatMessage, setInitialChatMessage] = useState<{
+    text: string;
+    issueNumber?: number;
+  } | null>(null);
+  const [retrying, setRetrying] = useState(false);
+
+  // Bumped on retry to restart polling that had stopped after failure.
+  const [pollGen, setPollGen] = useState(0);
 
   useEffect(() => {
     if (!id) return;
@@ -112,7 +119,7 @@ export default function RepoPage() {
         // Stop polling once this repo has reached a terminal status — no
         // point hitting the API every 3s when nothing is still processing.
         const status = body.data?.status;
-        if ((status === "COMPLETED" || status === "FAILED") && interval) {
+        if (status === "COMPLETED" && interval) {
           clearInterval(interval);
         }
       } catch {}
@@ -124,7 +131,7 @@ export default function RepoPage() {
       cancelled = true;
       if (interval) clearInterval(interval);
     };
-  }, [id]);
+  }, [id, pollGen]);
 
   const handleDelete = useCallback(async () => {
     if (!confirm("Delete this repository and all its data?")) return;
@@ -133,6 +140,19 @@ export default function RepoPage() {
       if (res.ok) router.push("/");
     } catch {}
   }, [id, router]);
+
+  const handleRetry = useCallback(async () => {
+    setRetrying(true);
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/repo/${id}/retry`, { method: "POST" });
+      if (res.ok) {
+        setRepo((prev) => prev ? { ...prev, status: "QUEUED" } : null);
+        setPollGen((n) => n + 1);
+      }
+    } finally {
+      setRetrying(false);
+    }
+  }, [id]);
 
   if (!repo) {
     return (
@@ -177,8 +197,6 @@ export default function RepoPage() {
   function navClick(item: NavItem) {
     if (isFolder(item)) {
       setArchOpen(!archOpen);
-    } else if (item.id === "files") {
-      setFilesOpen(!filesOpen);
     } else {
       setTab(item.id as TabId);
     }
@@ -236,6 +254,18 @@ export default function RepoPage() {
           <span>★ {repo.stars}</span>
           <span>⑂ {repo.forks}</span>
           {repo.defaultBranch && <span>{repo.defaultBranch}</span>}
+          {repo.status === "FAILED" && (
+            <button
+              onClick={handleRetry}
+              disabled={retrying}
+              className="w-6 h-6 flex items-center justify-center text-neutral-600 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors border border-neutral-800 rounded"
+              title="Retry analysis"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                <path fillRule="evenodd" d="M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.433a.75.75 0 000-1.5H3.989a.75.75 0 00-.75.75v4.242a.75.75 0 001.5 0v-2.43l.31.31a7 7 0 0011.712-3.138.75.75 0 00-1.449-.39zm1.23-3.723a.75.75 0 00.219-.53V2.929a.75.75 0 00-1.5 0V5.36l-.31-.31A7 7 0 003.239 8.188a.75.75 0 101.448.389A5.5 5.5 0 0113.89 6.11l.311.31h-2.432a.75.75 0 000 1.5h4.243a.75.75 0 00.53-.219z" clipRule="evenodd" />
+              </svg>
+            </button>
+          )}
           <button
             onClick={handleDelete}
             disabled={processing}
@@ -302,35 +332,15 @@ export default function RepoPage() {
                   <button
                     key={item.id}
                     onClick={() => navClick(item)}
-                    className="w-full flex items-center gap-2 px-3 py-2 rounded text-sm text-neutral-400 hover:text-white hover:bg-neutral-900 transition-colors"
+                    className={`w-full flex items-center gap-2 px-3 py-2 rounded text-sm transition-colors ${
+                      tab === item.id
+                        ? "bg-white text-black font-medium"
+                        : "text-neutral-400 hover:text-white hover:bg-neutral-900"
+                    }`}
                   >
                     <span>{item.label}</span>
-                    {item.id === "files" && (
-                      <span className="ml-auto text-xs text-neutral-600">
-                        {filesOpen ? "−" : "+"}
-                      </span>
-                    )}
                   </button>
                 ),
-              )}
-
-              {filesOpen && completed && (
-                <div className="ml-3 mt-1 mb-2 max-h-64 overflow-y-auto space-y-0.5 border-l border-neutral-900 pl-2">
-                  {repo.files.length === 0 ? (
-                    <p className="text-xs text-neutral-700 px-2">No files</p>
-                  ) : (
-                    repo.files.map((f) => (
-                      <div
-                        key={f.path}
-                        className="px-2 py-1 text-xs text-neutral-500 truncate rounded hover:bg-neutral-900 hover:text-neutral-300"
-                        style={{ fontFamily: "var(--font-mono)" }}
-                        title={f.path}
-                      >
-                        {f.path}
-                      </div>
-                    ))
-                  )}
-                </div>
               )}
             </>
           )}
@@ -354,7 +364,8 @@ export default function RepoPage() {
                 return (
                   <ChatView
                     repoId={repo.id}
-                    initialMessage={initialChatMessage}
+                    initialMessage={initialChatMessage?.text ?? null}
+                    issueNumber={initialChatMessage?.issueNumber}
                     onMessageUsed={() => setInitialChatMessage(null)}
                   />
                 );
@@ -363,12 +374,15 @@ export default function RepoPage() {
                 return (
                   <IssuesView
                     repoId={repo.id}
-                    onChatAboutIssue={(msg) => {
-                      setInitialChatMessage(msg);
+                    onChatAboutIssue={(msg, issueNumber) => {
+                      setInitialChatMessage({ text: msg, issueNumber });
                       setTab("chat");
                     }}
                   />
                 );
+              }
+              if (tab === "files") {
+                return <FilesView files={repo.files} />;
               }
               if (!mermaidData) {
                 return (
@@ -401,6 +415,11 @@ export default function RepoPage() {
             })()}
         </main>
       </div>
+      <style jsx>{`
+        .no-scrollbar::-webkit-scrollbar {
+          display: none;
+        }
+      `}</style>
     </div>
   );
 }

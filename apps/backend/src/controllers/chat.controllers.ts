@@ -199,7 +199,7 @@ function buildContextBlocks(
 
 export const sendMessage = async (req: Request, res: Response) => {
   const chatId = req.params.chatId as string;
-  const { content } = req.body;
+  const { content, issueNumber } = req.body;
 
   if (!content || typeof content !== "string" || !content.trim()) {
     throw new ApiError(400, "message content is required");
@@ -250,10 +250,36 @@ export const sendMessage = async (req: Request, res: Response) => {
     } catch {}
   }
 
+  let issueContext = "";
+  if (issueNumber && typeof issueNumber === "number") {
+    try {
+      const issue = await prisma.githubIssue.findUnique({
+        where: {
+          repositoryId_issueNumber: { repositoryId: repoId, issueNumber },
+        },
+      });
+      if (issue) {
+        const labelsText =
+          Array.isArray(issue.labels) && issue.labels.length > 0
+            ? `Labels: ${(issue.labels as string[]).join(", ")}`
+            : "";
+        issueContext = [
+          "## Context: GitHub Issue #" + issue.issueNumber,
+          `Title: ${issue.title}`,
+          labelsText,
+          issue.body ? `Description:\n> ${issue.body.replace(/\n/g, "\n> ")}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n");
+      }
+    } catch {}
+  }
+
   const contextBlock = buildContextBlocks(chunks);
 
   const systemPrompt = [
     SYSTEM_PROMPT_BASE,
+    issueContext || null,
     kgContext || null,
     contextBlock || null,
   ]

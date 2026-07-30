@@ -33,7 +33,7 @@ export function IssuesView({
   onChatAboutIssue,
 }: {
   repoId: string;
-  onChatAboutIssue: (message: string) => void;
+  onChatAboutIssue: (message: string, issueNumber: number) => void;
 }) {
   const [issues, setIssues] = useState<GithubIssue[]>([]);
   const [loading, setLoading] = useState(true);
@@ -150,6 +150,7 @@ export function IssuesView({
                       onClick={() =>
                         onChatAboutIssue(
                           `Help me understand and resolve issue #${issue.issueNumber}: ${issue.title}`,
+                          issue.issueNumber,
                         )
                       }
                       className="px-3 py-1.5 rounded-md bg-white text-black text-xs font-medium hover:bg-neutral-200 transition-colors"

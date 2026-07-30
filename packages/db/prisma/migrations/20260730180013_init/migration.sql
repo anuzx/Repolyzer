@@ -7,9 +7,6 @@ CREATE TYPE "RepoStatus" AS ENUM ('QUEUED', 'CLONING', 'PARSING', 'SUMMARY', 'CH
 CREATE TYPE "JobStatus" AS ENUM ('PENDING', 'RUNNING', 'COMPLETED', 'FAILED');
 
 -- CreateEnum
-CREATE TYPE "Severity" AS ENUM ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL');
-
--- CreateEnum
 CREATE TYPE "MessageRole" AS ENUM ('USER', 'ASSISTANT');
 
 -- CreateEnum
@@ -80,18 +77,22 @@ CREATE TABLE "Chunk" (
 );
 
 -- CreateTable
-CREATE TABLE "Issue" (
+CREATE TABLE "GithubIssue" (
     "id" TEXT NOT NULL,
     "repositoryId" TEXT NOT NULL,
-    "fileId" TEXT,
-    "severity" "Severity" NOT NULL,
+    "issueNumber" INTEGER NOT NULL,
     "title" TEXT NOT NULL,
-    "description" TEXT NOT NULL,
-    "recommendation" TEXT NOT NULL,
-    "resolved" BOOLEAN NOT NULL DEFAULT false,
+    "body" TEXT,
+    "labels" JSONB,
+    "author" TEXT NOT NULL,
+    "state" TEXT NOT NULL DEFAULT 'open',
+    "commentsCount" INTEGER NOT NULL DEFAULT 0,
+    "url" TEXT NOT NULL,
+    "githubCreatedAt" TIMESTAMP(3) NOT NULL,
+    "githubUpdatedAt" TIMESTAMP(3) NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    CONSTRAINT "Issue_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "GithubIssue_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -142,7 +143,10 @@ CREATE INDEX "Chunk_repositoryId_idx" ON "Chunk"("repositoryId");
 CREATE INDEX "Chunk_fileId_idx" ON "Chunk"("fileId");
 
 -- CreateIndex
-CREATE INDEX "Issue_repositoryId_idx" ON "Issue"("repositoryId");
+CREATE INDEX "GithubIssue_repositoryId_idx" ON "GithubIssue"("repositoryId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "GithubIssue_repositoryId_issueNumber_key" ON "GithubIssue"("repositoryId", "issueNumber");
 
 -- CreateIndex
 CREATE INDEX "Chat_repositoryId_idx" ON "Chat"("repositoryId");
@@ -166,10 +170,7 @@ ALTER TABLE "File" ADD CONSTRAINT "File_repositoryId_fkey" FOREIGN KEY ("reposit
 ALTER TABLE "Chunk" ADD CONSTRAINT "Chunk_fileId_fkey" FOREIGN KEY ("fileId") REFERENCES "File"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Issue" ADD CONSTRAINT "Issue_repositoryId_fkey" FOREIGN KEY ("repositoryId") REFERENCES "Repository"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Issue" ADD CONSTRAINT "Issue_fileId_fkey" FOREIGN KEY ("fileId") REFERENCES "File"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "GithubIssue" ADD CONSTRAINT "GithubIssue_repositoryId_fkey" FOREIGN KEY ("repositoryId") REFERENCES "Repository"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Chat" ADD CONSTRAINT "Chat_repositoryId_fkey" FOREIGN KEY ("repositoryId") REFERENCES "Repository"("id") ON DELETE CASCADE ON UPDATE CASCADE;

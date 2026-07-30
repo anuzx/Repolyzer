@@ -10,6 +10,8 @@ import {
   FiSend,
   FiAlertCircle,
   FiMessageSquare,
+  FiCopy,
+  FiCheck,
 } from "react-icons/fi";
 import { PiRobotBold, PiUserBold } from "react-icons/pi";
 import { BACKEND_URL } from "../lib/config";
@@ -159,6 +161,37 @@ function Avatar({ role }: { role: "USER" | "ASSISTANT" }) {
   );
 }
 
+function CopyButton({
+  text,
+  className = "",
+}: {
+  text: string;
+  className?: string;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }, [text]);
+
+  return (
+    <button
+      onClick={handleCopy}
+      title={copied ? "Copied" : "Copy"}
+      className={`flex items-center justify-center w-6 h-6 rounded text-neutral-500 hover:text-white hover:bg-neutral-800 transition-colors ${className}`}
+    >
+      {copied ? (
+        <FiCheck className="w-3.5 h-3.5" />
+      ) : (
+        <FiCopy className="w-3.5 h-3.5" />
+      )}
+    </button>
+  );
+}
+
 function TypingDots() {
   return (
     <span className="inline-flex items-center gap-1">
@@ -222,18 +255,26 @@ const MessageList = memo(function MessageList({
                 <TypingDots />
               </div>
             ) : (
-              <div
-                className="max-w-[85%] rounded-2xl rounded-bl-sm px-4 py-2.5 bg-neutral-900/70 border border-neutral-800 shadow-sm"
-                style={{ fontFamily: "var(--font-sans)" }}
-              >
-                <ReactMarkdown
-                  components={markdownComponents}
-                  remarkPlugins={[remarkGfm]}
+              <div className="flex flex-col items-start max-w-[85%] group">
+                <div
+                  className="rounded-2xl rounded-bl-sm px-4 py-2.5 bg-neutral-900/70 border border-neutral-800 shadow-sm"
+                  style={{ fontFamily: "var(--font-sans)" }}
                 >
-                  {msg.content}
-                </ReactMarkdown>
-                {isStreamingLast && (
-                  <span className="inline-block w-1.5 h-4 bg-white ml-0.5 animate-pulse align-text-bottom rounded-sm" />
+                  <ReactMarkdown
+                    components={markdownComponents}
+                    remarkPlugins={[remarkGfm]}
+                  >
+                    {msg.content}
+                  </ReactMarkdown>
+                  {isStreamingLast && (
+                    <span className="inline-block w-1.5 h-4 bg-white ml-0.5 animate-pulse align-text-bottom rounded-sm" />
+                  )}
+                </div>
+                {!isStreamingLast && msg.content && (
+                  <CopyButton
+                    text={msg.content}
+                    className="mt-1 opacity-0 group-hover:opacity-100"
+                  />
                 )}
               </div>
             )}
@@ -265,10 +306,12 @@ function chatLabel(chat: ChatSummary, index: number, total: number) {
 export function ChatView({
   repoId,
   initialMessage,
+  issueNumber,
   onMessageUsed,
 }: {
   repoId: string;
   initialMessage?: string | null;
+  issueNumber?: number;
   onMessageUsed?: () => void;
 }) {
   const [chats, setChats] = useState<ChatSummary[]>([]);
@@ -505,12 +548,14 @@ export function ChatView({
     let gotContent = false;
 
     try {
+      const body: Record<string, unknown> = { content: userMsg };
+      if (issueNumber) body.issueNumber = issueNumber;
       const res = await fetch(
         `${BACKEND_URL}/api/chats/${currentChatId}/messages`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ content: userMsg }),
+          body: JSON.stringify(body),
         },
       );
 

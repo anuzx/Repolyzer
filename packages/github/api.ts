@@ -1,9 +1,18 @@
 export const GITHUB_API = "https://api.github.com";
 
+function authHeaders(): Record<string, string> {
+  const token = process.env.GITHUB_TOKEN;
+  if (token) {
+    return { Authorization: `Bearer ${token}` };
+  }
+  return {};
+}
+
 export async function getRepository(owner: string, repo: string) {
   const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}`, {
     headers: {
       Accept: "application/vnd.github+json",
+      ...authHeaders(),
     },
   });
 
@@ -15,7 +24,11 @@ export async function getRepository(owner: string, repo: string) {
 }
 
 export async function getBranches(owner: string, repo: string) {
-  const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/branches`);
+  const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/branches`, {
+    headers: {
+      ...authHeaders(),
+    },
+  });
 
   if (!res.ok) {
     throw new Error("Unable to fetch branches");
@@ -28,6 +41,7 @@ export async function getReadme(owner: string, repo: string) {
   const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/readme`, {
     headers: {
       Accept: "application/vnd.github.raw",
+      ...authHeaders(),
     },
   });
 
@@ -39,7 +53,11 @@ export async function getReadme(owner: string, repo: string) {
 }
 
 export async function getLanguages(owner: string, repo: string) {
-  const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/languages`);
+  const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/languages`, {
+    headers: {
+      ...authHeaders(),
+    },
+  });
 
   if (!res.ok) {
     return {};
@@ -49,7 +67,11 @@ export async function getLanguages(owner: string, repo: string) {
 }
 
 export async function getContributors(owner: string, repo: string) {
-  const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contributors`);
+  const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/contributors`, {
+    headers: {
+      ...authHeaders(),
+    },
+  });
 
   if (!res.ok) {
     return [];
@@ -59,7 +81,11 @@ export async function getContributors(owner: string, repo: string) {
 }
 
 export async function getLatestCommit(owner: string, repo: string) {
-  const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/commits`);
+  const res = await fetch(`${GITHUB_API}/repos/${owner}/${repo}/commits`, {
+    headers: {
+      ...authHeaders(),
+    },
+  });
 
   if (!res.ok) {
     return null;
@@ -80,8 +106,9 @@ export async function getOpenIssues(
     {
       headers: {
         Accept: "application/vnd.github+json",
+        ...authHeaders(),
       },
-    }
+    },
   );
 
   if (!res.ok) {

@@ -7,19 +7,19 @@ import {
 } from "ts-morph";
 import ts from "typescript";
 import path from "node:path";
-import type { SourceFile } from "./scan.service";
+import type { SourceFile } from "../scan.service";
 import type {
   KnowledgeGraph,
   GraphNode,
   GraphEdge,
   ArchitectureLayer,
-} from "./types";
+} from "../types";
 
 const TS_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx"]);
 
-export async function buildKnowledgeGraph(
+export function buildTsKnowledgeGraph(
   files: SourceFile[],
-): Promise<KnowledgeGraph> {
+): KnowledgeGraph {
   const tsFiles = files.filter((f) => TS_EXTENSIONS.has(f.extension));
   const otherFiles = files.filter((f) => !TS_EXTENSIONS.has(f.extension));
 

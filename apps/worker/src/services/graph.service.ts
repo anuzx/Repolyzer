@@ -51,7 +51,8 @@ function esc(value: string): string {
     .replace(/>/g, "&gt;");
 }
 
-function simplifyType(raw: string): string {
+function simplifyType(raw: string | undefined | null): string {
+  if (!raw) return "";
   let t = raw
     .replace(/import\([^)]+\)\./g, "")
     .replace(/import\([^)]+\)/g, "any");

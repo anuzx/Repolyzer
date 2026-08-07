@@ -1,0 +1,99 @@
+name: repolyzer
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-repolyzer}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-repolyzer}
+      POSTGRES_DB: ${POSTGRES_DB:-repolyzer}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-repolyzer} -d ${POSTGRES_DB:-repolyzer}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    command: ["sh", "-c", "cd packages/db && bunx prisma migrate deploy"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-repolyzer}:${POSTGRES_PASSWORD:-repolyzer}@postgres:5432/${POSTGRES_DB:-repolyzer}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  backend:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-repolyzer}:${POSTGRES_PASSWORD:-repolyzer}@postgres:5432/${POSTGRES_DB:-repolyzer}
+      REDIS_URL: redis://redis:6379
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:?set OPENROUTER_API_KEY in .env}"
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:3001}
+    ports:
+      - "${BACKEND_PORT:-3000}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://localhost:3000/api/repo').then(r=>process.exit(r.status>=200&&r.status<500?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-repolyzer}:${POSTGRES_PASSWORD:-repolyzer}@postgres:5432/${POSTGRES_DB:-repolyzer}
+      REDIS_URL: redis://redis:6379
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY:?set OPENROUTER_API_KEY in .env}"
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      PYTHON_BIN: ${PYTHON_BIN:-python3}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  pgdata:
+  redisdata:

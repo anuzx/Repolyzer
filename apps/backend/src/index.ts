@@ -4,7 +4,7 @@ import { globalErrorHandler } from "./middlewares/global_error.middleware";
 
 const app = express();
 
-app.use(cors({ origin: "http://localhost:3001" }));
+app.use(cors({ origin: process.env.CORS_ORIGIN ?? "http://localhost:3001" }));
 app.use(express.json());
 
 import repoRouter from "./routes/repos.routes";
@@ -17,4 +17,5 @@ app.use("/api/repo", issueRouter);
 
 app.use(globalErrorHandler);
 
-app.listen(3000, () => console.log("server running at port 3000"));
+const PORT = Number(process.env.PORT ?? 3000);
+app.listen(PORT, () => console.log(`server running at port ${PORT}`));
